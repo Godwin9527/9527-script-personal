@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         B站9527助手 - 自动宽屏|自定义布局|智能连播|打造属于自己的B站
 // @namespace    https://github.com/Godwin9527
-// @version      1.0.0
+// @version      1.0.1
 // @description  9527自用: 自动宽屏模式|自定义布局|智能连播...更多功能等你体验, 打造属于自己的B站~
 // @author       Godwin9527
 // @run-at       document-start

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         B站9527助手 - 自动宽屏|自定义布局|智能连播|打造属于自己的B站
 // @namespace    https://github.com/Godwin9527
-// @version      1.0.0
+// @version      1.0.1
 // @description  9527自用: 自动宽屏模式|自定义布局|智能连播...更多功能等你体验, 打造属于自己的B站~
 // @author       Godwin9527
 // @run-at       document-start
@@ -1838,20 +1838,15 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
                 }
                 // 视频
                 function fullscreenVideo() {
-                    // if (GM_getValue('MRMenuMoveNavigationBar') == 0) {
-                    //     GM_addStyle('#bilibili-player {width: 100% !important; height: calc(100vh - 64px) !important;}');
-                    // } else {
-                    //     GM_addStyle('#bilibili-player {width: 100% !important; height: 100vh !important;}');
-                    // }
-                    // GM_addStyle('#playerWrap {height: auto !important; z-index: 50 !important;}');
-                    // (function () {
-                    //     if (document.getElementById('app') && document.getElementById('playerWrap') && document.getElementsByClassName('video-container-v1')[0]) {
-                    //         document.getElementById('app').insertBefore(document.getElementById('playerWrap'), document.getElementsByClassName('video-container-v1')[0]);
-                    //     } else {
-                    //         setTimeout(this, 20);
-                    //     }
-                    // })();
-                    if (document.getElementsByClassName('bpx-player-ctrl-time-duration')[0] && loadReady) {
+                    // 就绪判定：除原条件外，额外确认本分支要用到的容器都已存在，避免裸操作抛错导致重试链中断
+                    if (document.getElementsByClassName('bpx-player-ctrl-time-duration')[0] && loadReady
+                        && document.getElementById('app')
+                        && document.getElementById('playerWrap')
+                        && document.getElementById('bilibili-player')
+                        && document.getElementsByClassName('video-container-v1')[0]
+                        && document.getElementsByClassName('bpx-player-sending-area')[0]
+                        && document.getElementsByClassName('left-container')[0]) {
+                        try {
                         if (GM_getValue('MRMenuMoveNavigationBar') == 0) {
                             document.getElementById('bilibili-player').style.cssText += 'width: 100% !important; height: calc(100vh - 64px) !important;';
                         } else {
@@ -1896,6 +1891,14 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
                         document.getElementsByClassName('left-container')[0].style.cssText += 'z-index: unset !important; position: unset !important;';
                         // 通知
                         console.log('[' + notificationScriptName + '-' + notificationNotification + '] ' + '网页全屏模式 - 已开启网页全屏模式');
+                        } catch (fsErr) {
+                            // 操作中途抛错时自愈：延迟重试，不要让重试链就此中断（原脚本无 try/catch，偶发失效的根因之一）
+                            console.log('[' + notificationScriptName + '-' + notificationWarning + '] ' + '网页全屏模式(视频) - 执行异常, 稍后重试: ' + fsErr);
+                            if (fullscreenEtime < etime || timeoutSwitch) {
+                                fullscreenEtime += 200;
+                                setTimeout(fullscreenVideo, 200);
+                            }
+                        }
                     } else if (fullscreenEtime < etime || timeoutSwitch) {
                         fullscreenEtime += 200;
                         setTimeout(fullscreenVideo, 200);
@@ -1905,7 +1908,15 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
                 }
                 // 影视
                 function fullscreenMovie() {
-                    if (document.getElementsByClassName('bpx-player-ctrl-time-duration')[0] && loadReady) {
+                    if (document.getElementsByClassName('bpx-player-ctrl-time-duration')[0] && loadReady
+                        && document.getElementById('bilibili-player-wrap')
+                        && document.getElementById('__next')
+                        && document.getElementsByClassName('main-container')[0]
+                        && document.getElementsByClassName('plp-l')[0]
+                        && document.getElementsByClassName('plp-r')[0]
+                        && document.getElementsByClassName('bpx-player-sending-area')[0]
+                        && document.getElementsByClassName('bpx-player-video-info')[0]) {
+                        try {
                         if (GM_getValue('MRMenuMoveNavigationBar') == 0) {
                             document.getElementById('bilibili-player').style.cssText += 'width: 100% !important; height: calc(100vh - 64px) !important;';
                         } else {
@@ -1954,6 +1965,13 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
                         //
                         // 通知
                         console.log('[' + notificationScriptName + '-' + notificationNotification + '] ' + '网页全屏模式 - 已开启网页全屏模式');
+                        } catch (fsErr) {
+                            console.log('[' + notificationScriptName + '-' + notificationWarning + '] ' + '网页全屏模式(影视) - 执行异常, 稍后重试: ' + fsErr);
+                            if (fullscreenEtime < etime || timeoutSwitch) {
+                                fullscreenEtime += 200;
+                                setTimeout(fullscreenMovie, 200);
+                            }
+                        }
                     } else if (fullscreenEtime < etime || timeoutSwitch) {
                         fullscreenEtime += 200;
                         setTimeout(fullscreenMovie, 200);
@@ -1963,7 +1981,14 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
                 }
                 // 列表
                 function fullscreenList() {
-                    if (document.getElementsByClassName('bpx-player-ctrl-time-duration')[0] && loadReady) {
+                    if (document.getElementsByClassName('bpx-player-ctrl-time-duration')[0] && loadReady
+                        && document.getElementById('app')
+                        && document.getElementById('playerWrap')
+                        && document.getElementById('bilibili-player')
+                        && document.getElementsByClassName('playlist-container')[0]
+                        && document.getElementsByClassName('bpx-player-sending-area')[0]
+                        && document.getElementsByClassName('bpx-player-video-info')[0]) {
+                        try {
                         if (GM_getValue('MRMenuMoveNavigationBar') == 0) {
                             document.getElementById('bilibili-player').style.cssText += 'width: 100% !important; height: calc(100vh - 64px) !important;';
                         } else {
@@ -1998,7 +2023,7 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
                             document.getElementsByClassName('bpx-player-ctrl-web')[0].style.cssText += 'display: none';
                         } else if (fullscreenEtime < etime || timeoutSwitch) {
                             fullscreenEtime += 200;
-                            setTimeout(fullscreenVideo, 200);
+                            setTimeout(fullscreenList, 200);
                         } else {
                             console.log('[' + notificationScriptName + '-' + notificationWarning + '] ' + '网页全屏模式 - 未检测到宽屏模式按钮, 检测超时, 停止检测');
                         }
@@ -2006,6 +2031,13 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
                         document.getElementsByClassName('bpx-player-video-info')[0].style.cssText += 'width: auto';
                         // 通知
                         console.log('[' + notificationScriptName + '-' + notificationNotification + '] ' + '网页全屏模式 - 已开启网页全屏模式');
+                        } catch (fsErr) {
+                            console.log('[' + notificationScriptName + '-' + notificationWarning + '] ' + '网页全屏模式(列表) - 执行异常, 稍后重试: ' + fsErr);
+                            if (fullscreenEtime < etime || timeoutSwitch) {
+                                fullscreenEtime += 200;
+                                setTimeout(fullscreenList, 200);
+                            }
+                        }
                     } else if (fullscreenEtime < etime || timeoutSwitch) {
                         fullscreenEtime += 200;
                         setTimeout(fullscreenList, 200);
