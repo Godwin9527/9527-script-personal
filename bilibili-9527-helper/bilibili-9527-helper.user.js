@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         B站9527助手 - 自动宽屏|自定义布局|智能连播|打造属于自己的B站
+// @name         9527哔哩哔哩助手 - 自动宽屏|自定义布局|智能连播|打造属于自己的B站
 // @namespace    https://github.com/Godwin9527
-// @version      1.0.3
+// @version      1.0.4
 // @description  9527自用: 自动宽屏模式|自定义布局|智能连播...更多功能等你体验, 打造属于自己的B站~
 // @author       Godwin9527
 // @run-at       document-start
@@ -20,7 +20,7 @@
 // ==/UserScript==
 
 // 初始化全局变量
-var notificationScriptName = 'B站9527助手';
+var notificationScriptName = '9527哔哩哔哩助手';
 var notificationNotification = '通知';
 var notificationCheck = '检测';
 var notificationWarning = '警告';
@@ -29,9 +29,9 @@ var notificationError = '错误';
 var etime = 30000; // 计时器通用超时时间
 var timeoutSwitch = true; // 计时器是否会超时通用开关, true.不会超时, false.会超时
 var loadReady = false; // 判断页面是否加载完毕, 等加载完毕再进行网页全屏操作
-var isMRMenuMoving = false; // 判断是否拖拽MR菜单
-var isMRMenuMovingX = 0;
-var isMRMenuMovingY = 0;
+var isS9527MenuMoving = false; // 判断是否拖拽9527菜单
+var isS9527MenuMovingX = 0;
+var isS9527MenuMovingY = 0;
 
 // 播放模式
 // 自动宽屏模式变量
@@ -208,7 +208,7 @@ if (GM_getValue('MRMenuHideNavigationBarTag') == null) {
 
 // 实用功能与工具
 if (GM_getValue('MRMenuTransparent') == null) {
-    // MR菜单是否半透明, 1.不透明, *.半透明
+    // 9527菜单是否半透明, 1.不透明, *.半透明
     GM_setValue('MRMenuTransparent', 1);
 }
 if (GM_getValue('MRMenuSmartNextPlay') == null) {
@@ -268,26 +268,26 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
     function menuClick() {
         if (GM_getValue('MRMenuSwitch') == 0) {
             GM_setValue('MRMenuSwitch', 1);
-            MRMenuElement.style.cssText += 'pointer-events: all; opacity: ' + GM_getValue('MRMenuTransparent') + ';';
+            S9527MenuElement.style.cssText += 'pointer-events: all; opacity: ' + GM_getValue('MRMenuTransparent') + ';';
         } else {
             GM_setValue('MRMenuSwitch', 0);
-            MRMenuElement.style.cssText += 'pointer-events: none; opacity: 0;';
+            S9527MenuElement.style.cssText += 'pointer-events: none; opacity: 0;';
         }
     }
 
-    // MR菜单样式
+    // 9527菜单样式
     // 创建菜单父类容器
-    var MRMenuElement = document.createElement('div');
-    MRMenuElement.setAttribute('id', 'MRMenu');
+    var S9527MenuElement = document.createElement('div');
+    S9527MenuElement.setAttribute('id', 'S9527Menu');
     if (GM_getValue('MRMenuSwitch') == 0) {
-        MRMenuElement.style.cssText += 'transition: .2s; z-index: 99999; position: fixed; opacity: 0; pointer-events: none;';
+        S9527MenuElement.style.cssText += 'transition: .2s; z-index: 99999; position: fixed; opacity: 0; pointer-events: none;';
     } else {
-        MRMenuElement.style.cssText += 'transition: .2s; z-index: 99999; position: fixed; opacity: ' + GM_getValue('MRMenuTransparent') + ';';
+        S9527MenuElement.style.cssText += 'transition: .2s; z-index: 99999; position: fixed; opacity: ' + GM_getValue('MRMenuTransparent') + ';';
     }
     // 创建菜单背景和所有按钮
-    var MRMenuBackground = document.createElement('div');
-    MRMenuBackground.setAttribute('id', 'MRMenuBackground');
-    MRMenuBackground.style.cssText = '\
+    var S9527MenuBackground = document.createElement('div');
+    S9527MenuBackground.setAttribute('id', 'S9527MenuBackground');
+    S9527MenuBackground.style.cssText = '\
     display: flex;\
     overflow: auto;\
     flex-wrap: wrap;\
@@ -307,22 +307,22 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
     box-sizing: unset;\
     scrollbar-width: none;\
     ';
-    MRMenuBackground.innerHTML = '\
-    <div id="MRMenuReadme" style="\
+    S9527MenuBackground.innerHTML = '\
+    <div id="S9527MenuReadme" style="\
     margin: var(--defaultMargin);\
     width: 100%;\
     height: auto;\
     display: none;\
     flex-wrap: wrap;\
     ">\
-        <label class="MRMenuText" id="MRMenuReadmeText" style="\
+        <label class="S9527MenuText" id="S9527MenuReadmeText" style="\
         margin: var(--defaultMargin);\
         width: 100%;\
         height: auto;\
         line-height: 30px;\
         text-align: left;\
         ">\
-        MR哔哩哔哩助手首次使用指南:\
+        9527哔哩哔哩助手首次使用指南:\
         <br>\
         0. 这段文字下次打开就会消失啦, 剩下的就靠你自己啦, 估计也没多少人想看到这东西, 就不弄个开关啦\
         <br>\
@@ -332,355 +332,355 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
         <br>\
         3. 脚本不适配旧版哔哩哔哩, 请切换到新版界面\
         </label>\
-        <div class="MRMenuSplit"></div>\
+        <div class="S9527MenuSplit"></div>\
     </div>\
-    <label class="MRMenuText" id="MRMenuTitle" style="\
+    <label class="S9527MenuText" id="S9527MenuTitle" style="\
     margin: var(--defaultMargin);\
     width: 100%;\
     height: 30px;\
     line-height: 30px;\
     ">\
-    MR哔哩哔哩助手菜单\
-    <span id="MRMenuStatus" style="color: var(--closeBtnHoverBg) !important;">\
+    9527哔哩哔哩助手菜单\
+    <span id="S9527MenuStatus" style="color: var(--closeBtnHoverBg) !important;">\
      (未激活, 请等待页面加载完毕)\
     </span>\
     </label>\
-    <button type="button" id="MRMenuCloseBtn">\
+    <button type="button" id="S9527MenuCloseBtn">\
     关闭\
     </button>\
-    <div class="MRMenuOptionParent" id="MRMenuPlayerMode">\
-        <label class="MRMenuTitleText" id="MRMenuPlayerModeText">\
+    <div class="S9527MenuOptionParent" id="S9527MenuPlayerMode">\
+        <label class="S9527MenuTitleText" id="S9527MenuPlayerModeText">\
         播放器模式</label>\
-        <div class="MRMenuSplit"></div>\
-        <div class="MRMenuOption" id="MRMenuNormal">\
-            <label class="MRMenuText" id="MRMenuNormalText">\
+        <div class="S9527MenuSplit"></div>\
+        <div class="S9527MenuOption" id="S9527MenuNormal">\
+            <label class="S9527MenuText" id="S9527MenuNormalText">\
             默认模式</label>\
-            <label class="MRMenuSwitch" id="MRMenuNormalSwitch">\
-                <input type="checkbox" id="MRMenuNormalCheckbox">\
-                <div class="MRMenuSlider" id="MRMenuNormalSlider"></div>\
+            <label class="S9527MenuSwitch" id="S9527MenuNormalSwitch">\
+                <input type="checkbox" id="S9527MenuNormalCheckbox">\
+                <div class="S9527MenuSlider" id="S9527MenuNormalSlider"></div>\
             </label>\
         </div>\
-        <div class="MRMenuOption" id="MRMenuAutoWidescreen">\
-            <label class="MRMenuText" id="MRMenuAutoWidescreenText">\
+        <div class="S9527MenuOption" id="S9527MenuAutoWidescreen">\
+            <label class="S9527MenuText" id="S9527MenuAutoWidescreenText">\
             自动宽屏模式</label>\
-            <label class="MRMenuSwitch" id="MRMenuAutoWidescreenSwitch">\
-                <input type="checkbox" id="MRMenuAutoWidescreenCheckbox">\
-                <div class="MRMenuSlider" id="MRMenuAutoWidescreenSlider"></div>\
+            <label class="S9527MenuSwitch" id="S9527MenuAutoWidescreenSwitch">\
+                <input type="checkbox" id="S9527MenuAutoWidescreenCheckbox">\
+                <div class="S9527MenuSlider" id="S9527MenuAutoWidescreenSlider"></div>\
             </label>\
         </div>\
-        <div class="MRMenuOption" id="MRMenuFullscreen">\
-            <label class="MRMenuText" id="MRMenuFullscreenText">\
+        <div class="S9527MenuOption" id="S9527MenuFullscreen">\
+            <label class="S9527MenuText" id="S9527MenuFullscreenText">\
             网页全屏模式</label>\
-            <label class="MRMenuSwitch" id="MRMenuFullscreenSwitch">\
-                <input type="checkbox" id="MRMenuFullscreenCheckbox">\
-                <div class="MRMenuSlider" id="MRMenuFullscreenSlider"></div>\
+            <label class="S9527MenuSwitch" id="S9527MenuFullscreenSwitch">\
+                <input type="checkbox" id="S9527MenuFullscreenCheckbox">\
+                <div class="S9527MenuSlider" id="S9527MenuFullscreenSlider"></div>\
             </label>\
         </div>\
     </div>\
-    <div class="MRMenuOptionParent" id="MRMenuCustomLayout">\
-        <label class="MRMenuTitleText" id="MRMenuCustomLayoutText\">\
+    <div class="S9527MenuOptionParent" id="S9527MenuCustomLayout">\
+        <label class="S9527MenuTitleText" id="S9527MenuCustomLayoutText\">\
         自定义布局</label>\
-        <div class="MRMenuSplit"></div>\
-        <div class="MRMenuOption" id="MRMenuMoveNavigationBar">\
-            <label class="MRMenuText" id="MRMenuMoveNavigationBarText">\
+        <div class="S9527MenuSplit"></div>\
+        <div class="S9527MenuOption" id="S9527MenuMoveNavigationBar">\
+            <label class="S9527MenuText" id="S9527MenuMoveNavigationBarText">\
             移动导航栏到视频下方</label>\
-            <label class="MRMenuSwitch" id="MRMenuMoveNavigationBarSwitch">\
-                <input type="checkbox" id="MRMenuMoveNavigationBarCheckbox">\
-                <div class="MRMenuSlider" id="MRMenuMoveNavigationBarSlider"></div>\
+            <label class="S9527MenuSwitch" id="S9527MenuMoveNavigationBarSwitch">\
+                <input type="checkbox" id="S9527MenuMoveNavigationBarCheckbox">\
+                <div class="S9527MenuSlider" id="S9527MenuMoveNavigationBarSlider"></div>\
             </label>\
         </div>\
-        <div class="MRMenuOption" id="MRMenuHideFeedbackBtn">\
-            <label class="MRMenuText" id="MRMenuHideFeedbackBtnText">\
+        <div class="S9527MenuOption" id="S9527MenuHideFeedbackBtn">\
+            <label class="S9527MenuText" id="S9527MenuHideFeedbackBtnText">\
             隐藏新版反馈和回到旧版按钮</label>\
-            <label class="MRMenuSwitch" id="MRMenuHideFeedbackBtnSwitch">\
-                <input type="checkbox" id="MRMenuHideFeedbackBtnCheckbox">\
-                <div class="MRMenuSlider" id="MRMenuHideFeedbackBtnSlider"></div>\
+            <label class="S9527MenuSwitch" id="S9527MenuHideFeedbackBtnSwitch">\
+                <input type="checkbox" id="S9527MenuHideFeedbackBtnCheckbox">\
+                <div class="S9527MenuSlider" id="S9527MenuHideFeedbackBtnSlider"></div>\
             </label>\
         </div>\
-        <div class="MRMenuOption" id="MRMenuDownLayoutPadding">\
-            <label class="MRMenuText" id="MRMenuDownLayoutPaddingText">\
+        <div class="S9527MenuOption" id="S9527MenuDownLayoutPadding">\
+            <label class="S9527MenuText" id="S9527MenuDownLayoutPaddingText">\
             调整下方左右边距</label>\
-            <label class="MRMenuSwitch" id="MRMenuDownLayoutPaddingSwitch">\
-                <input type="checkbox" id="MRMenuDownLayoutPaddingCheckbox">\
-                <div class="MRMenuSlider" id="MRMenuDownLayoutPaddingSlider"></div>\
+            <label class="S9527MenuSwitch" id="S9527MenuDownLayoutPaddingSwitch">\
+                <input type="checkbox" id="S9527MenuDownLayoutPaddingCheckbox">\
+                <div class="S9527MenuSlider" id="S9527MenuDownLayoutPaddingSlider"></div>\
             </label>\
         </div>\
-        <div class="MRMenuOption" id="MRMenuSearchBarFull">\
-            <label class="MRMenuText" id="MRMenuSearchBarFullText">\
+        <div class="S9527MenuOption" id="S9527MenuSearchBarFull">\
+            <label class="S9527MenuText" id="S9527MenuSearchBarFullText">\
             导航栏搜索框长度占满</label>\
-            <label class="MRMenuSwitch" id="MRMenuSearchBarFullSwitch">\
-                <input type="checkbox" id="MRMenuSearchBarFullCheckbox">\
-                <div class="MRMenuSlider" id="MRMenuSearchBarFullSlider"></div>\
+            <label class="S9527MenuSwitch" id="S9527MenuSearchBarFullSwitch">\
+                <input type="checkbox" id="S9527MenuSearchBarFullCheckbox">\
+                <div class="S9527MenuSlider" id="S9527MenuSearchBarFullSlider"></div>\
             </label>\
         </div>\
-        <div class="MRMenuOption" id="MRMenuPutSendingBarInPlayer">\
-            <label class="MRMenuText" id="MRMenuPutSendingBarInPlayerText">\
+        <div class="S9527MenuOption" id="S9527MenuPutSendingBarInPlayer">\
+            <label class="S9527MenuText" id="S9527MenuPutSendingBarInPlayerText">\
             将弹幕栏整合到播放器内</label>\
-            <label class="MRMenuSwitch" id="MRMenuPutSendingBarInPlayerSwitch">\
-                <input type="checkbox" id="MRMenuPutSendingBarInPlayerCheckbox">\
-                <div class="MRMenuSlider" id="MRMenuPutSendingBarInPlayerSlider"></div>\
+            <label class="S9527MenuSwitch" id="S9527MenuPutSendingBarInPlayerSwitch">\
+                <input type="checkbox" id="S9527MenuPutSendingBarInPlayerCheckbox">\
+                <div class="S9527MenuSlider" id="S9527MenuPutSendingBarInPlayerSlider"></div>\
             </label>\
         </div>\
-        <div class="MRMenuOption" id="MRMenuHideVideoInfo">\
-            <label class="MRMenuText" id="MRMenuHideVideoInfoText">\
+        <div class="S9527MenuOption" id="S9527MenuHideVideoInfo">\
+            <label class="S9527MenuText" id="S9527MenuHideVideoInfoText">\
             隐藏观看人数和弹幕装填信息</label>\
-            <label class="MRMenuSwitch" id="MRMenuHideVideoInfoSwitch">\
-                <input type="checkbox" id="MRMenuHideVideoInfoCheckbox">\
-                <div class="MRMenuSlider" id="MRMenuHideVideoInfoSlider"></div>\
+            <label class="S9527MenuSwitch" id="S9527MenuHideVideoInfoSwitch">\
+                <input type="checkbox" id="S9527MenuHideVideoInfoCheckbox">\
+                <div class="S9527MenuSlider" id="S9527MenuHideVideoInfoSlider"></div>\
             </label>\
         </div>\
-        <div class="MRMenuOption" id="MRMenuDisplayEplist">\
-            <label class="MRMenuText" id="MRMenuDisplayEplistText">\
+        <div class="S9527MenuOption" id="S9527MenuDisplayEplist">\
+            <label class="S9527MenuText" id="S9527MenuDisplayEplistText">\
             播放器内显示选集按钮</label>\
-            <label class="MRMenuSwitch" id="MRMenuDisplayEplistSwitch">\
-                <input type="checkbox" id="MRMenuDisplayEplistCheckbox">\
-                <div class="MRMenuSlider" id="MRMenuDisplayEplistSlider"></div>\
+            <label class="S9527MenuSwitch" id="S9527MenuDisplayEplistSwitch">\
+                <input type="checkbox" id="S9527MenuDisplayEplistCheckbox">\
+                <div class="S9527MenuSlider" id="S9527MenuDisplayEplistSlider"></div>\
             </label>\
         </div>\
-        <div class="MRMenuOption" id="MRMenuDisplayTitle">\
-            <label class="MRMenuText" id="MRMenuDisplayTitleText">\
+        <div class="S9527MenuOption" id="S9527MenuDisplayTitle">\
+            <label class="S9527MenuText" id="S9527MenuDisplayTitleText">\
             播放器内显示标题</label>\
-            <label class="MRMenuSwitch" id="MRMenuDisplayTitleSwitch">\
-                <input type="checkbox" id="MRMenuDisplayTitleCheckbox">\
-                <div class="MRMenuSlider" id="MRMenuDisplayTitleSlider"></div>\
+            <label class="S9527MenuSwitch" id="S9527MenuDisplayTitleSwitch">\
+                <input type="checkbox" id="S9527MenuDisplayTitleCheckbox">\
+                <div class="S9527MenuSlider" id="S9527MenuDisplayTitleSlider"></div>\
             </label>\
         </div>\
-        <div class="MRMenuOption" id="MRMenuHideFollowBtn">\
-            <label class="MRMenuText" id="MRMenuHideFollowBtnText">\
+        <div class="S9527MenuOption" id="S9527MenuHideFollowBtn">\
+            <label class="S9527MenuText" id="S9527MenuHideFollowBtnText">\
             隐藏播放器内关注按钮</label>\
-            <label class="MRMenuSwitch" id="MRMenuHideFollowBtnSwitch">\
-                <input type="checkbox" id="MRMenuHideFollowBtnCheckbox">\
-                <div class="MRMenuSlider" id="MRMenuHideFollowBtnSlider"></div>\
+            <label class="S9527MenuSwitch" id="S9527MenuHideFollowBtnSwitch">\
+                <input type="checkbox" id="S9527MenuHideFollowBtnCheckbox">\
+                <div class="S9527MenuSlider" id="S9527MenuHideFollowBtnSlider"></div>\
             </label>\
         </div>\
-        <div class="MRMenuOption" id="MRMenuMoveTitleAndUpinfo">\
-            <label class="MRMenuText" id="MRMenuMoveTitleAndUpinfoText">\
+        <div class="S9527MenuOption" id="S9527MenuMoveTitleAndUpinfo">\
+            <label class="S9527MenuText" id="S9527MenuMoveTitleAndUpinfoText">\
             把标题和头像移到视频下方</label>\
-            <label class="MRMenuSwitch" id="MRMenuMoveTitleAndUpinfoSwitch">\
-                <input type="checkbox" id="MRMenuMoveTitleAndUpinfoCheckbox">\
-                <div class="MRMenuSlider" id="MRMenuMoveTitleAndUpinfoSlider"></div>\
+            <label class="S9527MenuSwitch" id="S9527MenuMoveTitleAndUpinfoSwitch">\
+                <input type="checkbox" id="S9527MenuMoveTitleAndUpinfoCheckbox">\
+                <div class="S9527MenuSlider" id="S9527MenuMoveTitleAndUpinfoSlider"></div>\
             </label>\
         </div>\
-        <div class="MRMenuOption" id="MRMenuBetterToolTip">\
-            <label class="MRMenuText" id="MRMenuBetterToolTipText">\
+        <div class="S9527MenuOption" id="S9527MenuBetterToolTip">\
+            <label class="S9527MenuText" id="S9527MenuBetterToolTipText">\
             优化工具提示弹窗</label>\
-            <label class="MRMenuSwitch" id="MRMenuBetterToolTipSwitch">\
-                <input type="checkbox" id="MRMenuBetterToolTipCheckbox">\
-                <div class="MRMenuSlider" id="MRMenuBetterToolTipSlider"></div>\
+            <label class="S9527MenuSwitch" id="S9527MenuBetterToolTipSwitch">\
+                <input type="checkbox" id="S9527MenuBetterToolTipCheckbox">\
+                <div class="S9527MenuSlider" id="S9527MenuBetterToolTipSlider"></div>\
             </label>\
         </div>\
-        <div class="MRMenuOption" id="MRMenuHideProgressArea">\
-            <label class="MRMenuText" id="MRMenuHideProgressAreaText">\
+        <div class="S9527MenuOption" id="S9527MenuHideProgressArea">\
+            <label class="S9527MenuText" id="S9527MenuHideProgressAreaText">\
             隐藏视频底部蓝条</label>\
-            <label class="MRMenuSwitch" id="MRMenuHideProgressAreaSwitch">\
-                <input type="checkbox" id="MRMenuHideProgressAreaCheckbox">\
-                <div class="MRMenuSlider" id="MRMenuHideProgressAreaSlider"></div>\
+            <label class="S9527MenuSwitch" id="S9527MenuHideProgressAreaSwitch">\
+                <input type="checkbox" id="S9527MenuHideProgressAreaCheckbox">\
+                <div class="S9527MenuSlider" id="S9527MenuHideProgressAreaSlider"></div>\
             </label>\
         </div>\
-        <label class="MRMenuTitleText" id="MRMenuHideNavigationBarTagText">\
+        <label class="S9527MenuTitleText" id="S9527MenuHideNavigationBarTagText">\
         隐藏导航栏标签</label>\
-        <div class="MRMenuSplit"></div>\
-        <div class="MRMultipleOptionsParent" id="MRMenuHideNavigationBarTag">\
-            <div class="MRMenuOption" id="MRMenuHideNavigationBarTag0">\
-                <label class="MRMenuText" id="MRMenuHideNavigationBarTag0Text">\
+        <div class="S9527MenuSplit"></div>\
+        <div class="S9527MultipleOptionsParent" id="S9527MenuHideNavigationBarTag">\
+            <div class="S9527MenuOption" id="S9527MenuHideNavigationBarTag0">\
+                <label class="S9527MenuText" id="S9527MenuHideNavigationBarTag0Text">\
                 图标</label>\
-                <label class="MRMenuSwitch" id="MRMenuHideNavigationBarTag0Switch">\
-                    <input type="checkbox" id="MRMenuHideNavigationBarTag0Checkbox">\
-                    <div class="MRMenuSlider" id="MRMenuHideNavigationBarTag0Slider"></div>\
+                <label class="S9527MenuSwitch" id="S9527MenuHideNavigationBarTag0Switch">\
+                    <input type="checkbox" id="S9527MenuHideNavigationBarTag0Checkbox">\
+                    <div class="S9527MenuSlider" id="S9527MenuHideNavigationBarTag0Slider"></div>\
                 </label>\
             </div>\
-            <div class="MRMenuOption" id="MRMenuHideNavigationBarTag1">\
-                <label class="MRMenuText" id="MRMenuHideNavigationBarTag1Text">\
+            <div class="S9527MenuOption" id="S9527MenuHideNavigationBarTag1">\
+                <label class="S9527MenuText" id="S9527MenuHideNavigationBarTag1Text">\
                 首页</label>\
-                <label class="MRMenuSwitch" id="MRMenuHideNavigationBarTag1Switch">\
-                    <input type="checkbox" id="MRMenuHideNavigationBarTag1Checkbox">\
-                    <div class="MRMenuSlider" id="MRMenuHideNavigationBarTag1Slider"></div>\
+                <label class="S9527MenuSwitch" id="S9527MenuHideNavigationBarTag1Switch">\
+                    <input type="checkbox" id="S9527MenuHideNavigationBarTag1Checkbox">\
+                    <div class="S9527MenuSlider" id="S9527MenuHideNavigationBarTag1Slider"></div>\
                 </label>\
             </div>\
-            <div class="MRMenuOption" id="MRMenuHideNavigationBarTag2">\
-                <label class="MRMenuText" id="MRMenuHideNavigationBarTag2Text">\
+            <div class="S9527MenuOption" id="S9527MenuHideNavigationBarTag2">\
+                <label class="S9527MenuText" id="S9527MenuHideNavigationBarTag2Text">\
                 番剧</label>\
-                <label class="MRMenuSwitch" id="MRMenuHideNavigationBarTag2Switch">\
-                    <input type="checkbox" id="MRMenuHideNavigationBarTag2Checkbox">\
-                    <div class="MRMenuSlider" id="MRMenuHideNavigationBarTag2Slider"></div>\
+                <label class="S9527MenuSwitch" id="S9527MenuHideNavigationBarTag2Switch">\
+                    <input type="checkbox" id="S9527MenuHideNavigationBarTag2Checkbox">\
+                    <div class="S9527MenuSlider" id="S9527MenuHideNavigationBarTag2Slider"></div>\
                 </label>\
             </div>\
-            <div class="MRMenuOption" id="MRMenuHideNavigationBarTag3">\
-                <label class="MRMenuText" id="MRMenuHideNavigationBarTag3Text">\
+            <div class="S9527MenuOption" id="S9527MenuHideNavigationBarTag3">\
+                <label class="S9527MenuText" id="S9527MenuHideNavigationBarTag3Text">\
                 直播</label>\
-                <label class="MRMenuSwitch" id="MRMenuHideNavigationBarTag3Switch">\
-                    <input type="checkbox" id="MRMenuHideNavigationBarTag3Checkbox">\
-                    <div class="MRMenuSlider" id="MRMenuHideNavigationBarTag3Slider"></div>\
+                <label class="S9527MenuSwitch" id="S9527MenuHideNavigationBarTag3Switch">\
+                    <input type="checkbox" id="S9527MenuHideNavigationBarTag3Checkbox">\
+                    <div class="S9527MenuSlider" id="S9527MenuHideNavigationBarTag3Slider"></div>\
                 </label>\
             </div>\
-            <div class="MRMenuOption" id="MRMenuHideNavigationBarTag4">\
-                <label class="MRMenuText" id="MRMenuHideNavigationBarTag4Text">\
+            <div class="S9527MenuOption" id="S9527MenuHideNavigationBarTag4">\
+                <label class="S9527MenuText" id="S9527MenuHideNavigationBarTag4Text">\
                 游戏</label>\
-                <label class="MRMenuSwitch" id="MRMenuHideNavigationBarTag4Switch">\
-                    <input type="checkbox" id="MRMenuHideNavigationBarTag4Checkbox">\
-                    <div class="MRMenuSlider" id="MRMenuHideNavigationBarTag4Slider"></div>\
+                <label class="S9527MenuSwitch" id="S9527MenuHideNavigationBarTag4Switch">\
+                    <input type="checkbox" id="S9527MenuHideNavigationBarTag4Checkbox">\
+                    <div class="S9527MenuSlider" id="S9527MenuHideNavigationBarTag4Slider"></div>\
                 </label>\
             </div>\
-            <div class="MRMenuOption" id="MRMenuHideNavigationBarTag5">\
-                <label class="MRMenuText" id="MRMenuHideNavigationBarTag5Text">\
+            <div class="S9527MenuOption" id="S9527MenuHideNavigationBarTag5">\
+                <label class="S9527MenuText" id="S9527MenuHideNavigationBarTag5Text">\
                 会员购</label>\
-                <label class="MRMenuSwitch" id="MRMenuHideNavigationBarTag5Switch">\
-                    <input type="checkbox" id="MRMenuHideNavigationBarTag5Checkbox">\
-                    <div class="MRMenuSlider" id="MRMenuHideNavigationBarTag5Slider"></div>\
+                <label class="S9527MenuSwitch" id="S9527MenuHideNavigationBarTag5Switch">\
+                    <input type="checkbox" id="S9527MenuHideNavigationBarTag5Checkbox">\
+                    <div class="S9527MenuSlider" id="S9527MenuHideNavigationBarTag5Slider"></div>\
                 </label>\
             </div>\
-            <div class="MRMenuOption" id="MRMenuHideNavigationBarTag6">\
-                <label class="MRMenuText" id="MRMenuHideNavigationBarTag6Text">\
+            <div class="S9527MenuOption" id="S9527MenuHideNavigationBarTag6">\
+                <label class="S9527MenuText" id="S9527MenuHideNavigationBarTag6Text">\
                 漫画</label>\
-                <label class="MRMenuSwitch" id="MRMenuHideNavigationBarTag6Switch">\
-                    <input type="checkbox" id="MRMenuHideNavigationBarTag6Checkbox">\
-                    <div class="MRMenuSlider" id="MRMenuHideNavigationBarTag6Slider"></div>\
+                <label class="S9527MenuSwitch" id="S9527MenuHideNavigationBarTag6Switch">\
+                    <input type="checkbox" id="S9527MenuHideNavigationBarTag6Checkbox">\
+                    <div class="S9527MenuSlider" id="S9527MenuHideNavigationBarTag6Slider"></div>\
                 </label>\
             </div>\
-            <div class="MRMenuOption" id="MRMenuHideNavigationBarTag7">\
-                <label class="MRMenuText" id="MRMenuHideNavigationBarTag7Text">\
+            <div class="S9527MenuOption" id="S9527MenuHideNavigationBarTag7">\
+                <label class="S9527MenuText" id="S9527MenuHideNavigationBarTag7Text">\
                 赛事</label>\
-                <label class="MRMenuSwitch" id="MRMenuHideNavigationBarTag7Switch">\
-                    <input type="checkbox" id="MRMenuHideNavigationBarTag7Checkbox">\
-                    <div class="MRMenuSlider" id="MRMenuHideNavigationBarTag7Slider"></div>\
+                <label class="S9527MenuSwitch" id="S9527MenuHideNavigationBarTag7Switch">\
+                    <input type="checkbox" id="S9527MenuHideNavigationBarTag7Checkbox">\
+                    <div class="S9527MenuSlider" id="S9527MenuHideNavigationBarTag7Slider"></div>\
                 </label>\
             </div>\
-            <div class="MRMenuOption" id="MRMenuHideNavigationBarTag8">\
-                <label class="MRMenuText" id="MRMenuHideNavigationBarTag8Text">\
+            <div class="S9527MenuOption" id="S9527MenuHideNavigationBarTag8">\
+                <label class="S9527MenuText" id="S9527MenuHideNavigationBarTag8Text">\
                 活动广告</label>\
-                <label class="MRMenuSwitch" id="MRMenuHideNavigationBarTag8Switch">\
-                    <input type="checkbox" id="MRMenuHideNavigationBarTag8Checkbox">\
-                    <div class="MRMenuSlider" id="MRMenuHideNavigationBarTag8Slider"></div>\
+                <label class="S9527MenuSwitch" id="S9527MenuHideNavigationBarTag8Switch">\
+                    <input type="checkbox" id="S9527MenuHideNavigationBarTag8Checkbox">\
+                    <div class="S9527MenuSlider" id="S9527MenuHideNavigationBarTag8Slider"></div>\
                 </label>\
             </div>\
-            <div class="MRMenuOption" id="MRMenuHideNavigationBarTag9">\
-                <label class="MRMenuText" id="MRMenuHideNavigationBarTag9Text">\
+            <div class="S9527MenuOption" id="S9527MenuHideNavigationBarTag9">\
+                <label class="S9527MenuText" id="S9527MenuHideNavigationBarTag9Text">\
                 下载客户端</label>\
-                <label class="MRMenuSwitch" id="MRMenuHideNavigationBarTag9Switch">\
-                    <input type="checkbox" id="MRMenuHideNavigationBarTag9Checkbox">\
-                    <div class="MRMenuSlider" id="MRMenuHideNavigationBarTag9Slider"></div>\
+                <label class="S9527MenuSwitch" id="S9527MenuHideNavigationBarTag9Switch">\
+                    <input type="checkbox" id="S9527MenuHideNavigationBarTag9Checkbox">\
+                    <div class="S9527MenuSlider" id="S9527MenuHideNavigationBarTag9Slider"></div>\
                 </label>\
             </div>\
         </div>\
     </div>\
-    <div class="MRMenuOptionParent" id="MRMenuFunctions">\
-        <label class="MRMenuTitleText" id="MRMenuFunctionsText">\
+    <div class="S9527MenuOptionParent" id="S9527MenuFunctions">\
+        <label class="S9527MenuTitleText" id="S9527MenuFunctionsText">\
         实用功能与工具</label>\
-        <div class="MRMenuSplit"></div>\
-        <div class="MRMenuOption" id="MRMenuTransparent">\
-            <label class="MRMenuText" id="MRMenuTransparentText">\
+        <div class="S9527MenuSplit"></div>\
+        <div class="S9527MenuOption" id="S9527MenuTransparent">\
+            <label class="S9527MenuText" id="S9527MenuTransparentText">\
             菜单半透明</label>\
-            <label class="MRMenuSwitch" id="MRMenuTransparentSwitch">\
-                <input type="checkbox" id="MRMenuTransparentCheckbox">\
-                <div class="MRMenuSlider" id="MRMenuTransparentSlider"></div>\
+            <label class="S9527MenuSwitch" id="S9527MenuTransparentSwitch">\
+                <input type="checkbox" id="S9527MenuTransparentCheckbox">\
+                <div class="S9527MenuSlider" id="S9527MenuTransparentSlider"></div>\
             </label>\
         </div>\
-        <div class="MRMenuOption" id="MRMenuSmartNextPlay">\
-            <label class="MRMenuText" id="MRMenuSmartNextPlayText">\
+        <div class="S9527MenuOption" id="S9527MenuSmartNextPlay">\
+            <label class="S9527MenuText" id="S9527MenuSmartNextPlayText">\
             智能连播 (多集/分P连播, 单集不连播)</label>\
-            <label class="MRMenuSwitch" id="MRMenuSmartNextPlaySwitch">\
-                <input type="checkbox" id="MRMenuSmartNextPlayCheckbox">\
-                <div class="MRMenuSlider" id="MRMenuSmartNextPlaySlider"></div>\
+            <label class="S9527MenuSwitch" id="S9527MenuSmartNextPlaySwitch">\
+                <input type="checkbox" id="S9527MenuSmartNextPlayCheckbox">\
+                <div class="S9527MenuSlider" id="S9527MenuSmartNextPlaySlider"></div>\
             </label>\
         </div>\
-        <div class="MRMenuOption" id="MRMenuMoveWindowToTop">\
-            <label class="MRMenuText" id="MRMenuMoveWindowToTopText">\
+        <div class="S9527MenuOption" id="S9527MenuMoveWindowToTop">\
+            <label class="S9527MenuText" id="S9527MenuMoveWindowToTopText">\
             播放器加载完毕后移动窗口到顶部</label>\
-            <label class="MRMenuSwitch" id="MRMenuMoveWindowToTopSwitch">\
-                <input type="checkbox" id="MRMenuMoveWindowToTopCheckbox">\
-                <div class="MRMenuSlider" id="MRMenuMoveWindowToTopSlider"></div>\
+            <label class="S9527MenuSwitch" id="S9527MenuMoveWindowToTopSwitch">\
+                <input type="checkbox" id="S9527MenuMoveWindowToTopCheckbox">\
+                <div class="S9527MenuSlider" id="S9527MenuMoveWindowToTopSlider"></div>\
             </label>\
         </div>\
-        <div class="MRMenuOption" id="MRMenuRemoveWidescreenBlack">\
-            <label class="MRMenuText" id="MRMenuRemoveWidescreenBlackText">\
+        <div class="S9527MenuOption" id="S9527MenuRemoveWidescreenBlack">\
+            <label class="S9527MenuText" id="S9527MenuRemoveWidescreenBlackText">\
             去除宽屏模式左右黑边 (竖版视频不生效)</label>\
-            <label class="MRMenuSwitch" id="MRMenuRemoveWidescreenBlackSwitch">\
-                <input type="checkbox" id="MRMenuRemoveWidescreenBlackCheckbox">\
-                <div class="MRMenuSlider" id="MRMenuRemoveWidescreenBlackSlider"></div>\
+            <label class="S9527MenuSwitch" id="S9527MenuRemoveWidescreenBlackSwitch">\
+                <input type="checkbox" id="S9527MenuRemoveWidescreenBlackCheckbox">\
+                <div class="S9527MenuSlider" id="S9527MenuRemoveWidescreenBlackSlider"></div>\
             </label>\
         </div>\
-        <div class="MRMenuOption" id="MRMenuRemoveKeyword">\
-            <label class="MRMenuText" id="MRMenuRemoveKeywordText">\
+        <div class="S9527MenuOption" id="S9527MenuRemoveKeyword">\
+            <label class="S9527MenuText" id="S9527MenuRemoveKeywordText">\
             去除评论区蓝色关键字</label>\
-            <label class="MRMenuSwitch" id="MRMenuRemoveKeywordSwitch">\
-                <input type="checkbox" id="MRMenuRemoveKeywordCheckbox">\
-                <div class="MRMenuSlider" id="MRMenuRemoveKeywordSlider"></div>\
+            <label class="S9527MenuSwitch" id="S9527MenuRemoveKeywordSwitch">\
+                <input type="checkbox" id="S9527MenuRemoveKeywordCheckbox">\
+                <div class="S9527MenuSlider" id="S9527MenuRemoveKeywordSlider"></div>\
             </label>\
         </div>\
-        <div class="MRMenuOption" id="MRMenuRemoveUselessComment">\
-            <label class="MRMenuText" id="MRMenuRemoveUselessCommentText">\
+        <div class="S9527MenuOption" id="S9527MenuRemoveUselessComment">\
+            <label class="S9527MenuText" id="S9527MenuRemoveUselessCommentText">\
             去除评论区只有@人的无用评论</label>\
-            <label class="MRMenuSwitch" id="MRMenuRemoveUselessCommentSwitch">\
-                <input type="checkbox" id="MRMenuRemoveUselessCommentCheckbox">\
-                <div class="MRMenuSlider" id="MRMenuRemoveUselessCommentSlider"></div>\
+            <label class="S9527MenuSwitch" id="S9527MenuRemoveUselessCommentSwitch">\
+                <input type="checkbox" id="S9527MenuRemoveUselessCommentCheckbox">\
+                <div class="S9527MenuSlider" id="S9527MenuRemoveUselessCommentSlider"></div>\
             </label>\
         </div>\
-        <div class="MRMenuOption" id="MRMenuMoreVideoSpeed">\
-            <label class="MRMenuText" id="MRMenuMoreVideoSpeedText">\
+        <div class="S9527MenuOption" id="S9527MenuMoreVideoSpeed">\
+            <label class="S9527MenuText" id="S9527MenuMoreVideoSpeedText">\
             更多倍速</label>\
-            <label class="MRMenuSwitch" id="MRMenuMoreVideoSpeedSwitch">\
-                <input type="checkbox" id="MRMenuMoreVideoSpeedCheckbox">\
-                <div class="MRMenuSlider" id="MRMenuMoreVideoSpeedSlider"></div>\
+            <label class="S9527MenuSwitch" id="S9527MenuMoreVideoSpeedSwitch">\
+                <input type="checkbox" id="S9527MenuMoreVideoSpeedCheckbox">\
+                <div class="S9527MenuSlider" id="S9527MenuMoreVideoSpeedSlider"></div>\
             </label>\
         </div>\
-        <div class="MRMenuOption" id="MRMenuWatchLaterReplaceURL">\
-            <label class="MRMenuText" id="MRMenuWatchLaterReplaceURLText">\
+        <div class="S9527MenuOption" id="S9527MenuWatchLaterReplaceURL">\
+            <label class="S9527MenuText" id="S9527MenuWatchLaterReplaceURLText">\
             稍后再看页面替换网址</label>\
-            <label class="MRMenuSwitch" id="MRMenuWatchLaterReplaceURLSwitch">\
-                <input type="checkbox" id="MRMenuWatchLaterReplaceURLCheckbox">\
-                <div class="MRMenuSlider" id="MRMenuWatchLaterReplaceURLSlider"></div>\
+            <label class="S9527MenuSwitch" id="S9527MenuWatchLaterReplaceURLSwitch">\
+                <input type="checkbox" id="S9527MenuWatchLaterReplaceURLCheckbox">\
+                <div class="S9527MenuSlider" id="S9527MenuWatchLaterReplaceURLSlider"></div>\
             </label>\
         </div>\
-        <div class="MRMenuOption" id="MRMenuEscQuitViewImage">\
-            <label class="MRMenuText" id="MRMenuEscQuitViewImageText">\
+        <div class="S9527MenuOption" id="S9527MenuEscQuitViewImage">\
+            <label class="S9527MenuText" id="S9527MenuEscQuitViewImageText">\
             按ESC退出图片预览</label>\
-            <label class="MRMenuSwitch" id="MRMenuEscQuitViewImageSwitch">\
-                <input type="checkbox" id="MRMenuEscQuitViewImageCheckbox">\
-                <div class="MRMenuSlider" id="MRMenuEscQuitViewImageSlider"></div>\
+            <label class="S9527MenuSwitch" id="S9527MenuEscQuitViewImageSwitch">\
+                <input type="checkbox" id="S9527MenuEscQuitViewImageCheckbox">\
+                <div class="S9527MenuSlider" id="S9527MenuEscQuitViewImageSlider"></div>\
             </label>\
         </div>\
-        <div class="MRMenuOption" id="MRMenuFixPIPDelay">\
-            <label class="MRMenuText" id="MRMenuFixPIPDelayText">\
+        <div class="S9527MenuOption" id="S9527MenuFixPIPDelay">\
+            <label class="S9527MenuText" id="S9527MenuFixPIPDelayText">\
             修复视频小窗口延迟</label>\
-            <label class="MRMenuSwitch" id="MRMenuFixPIPDelaySwitch">\
-                <input type="checkbox" id="MRMenuFixPIPDelayCheckbox">\
-                <div class="MRMenuSlider" id="MRMenuFixPIPDelaySlider"></div>\
+            <label class="S9527MenuSwitch" id="S9527MenuFixPIPDelaySwitch">\
+                <input type="checkbox" id="S9527MenuFixPIPDelayCheckbox">\
+                <div class="S9527MenuSlider" id="S9527MenuFixPIPDelaySlider"></div>\
             </label>\
         </div>\
-        <div class="MRMenuOption" id="MRMenuAlwaysOpenSubtitle">\
-            <label class="MRMenuText" id="MRMenuAlwaysOpenSubtitleText">\
+        <div class="S9527MenuOption" id="S9527MenuAlwaysOpenSubtitle">\
+            <label class="S9527MenuText" id="S9527MenuAlwaysOpenSubtitleText">\
             总是开启字幕</label>\
-            <label class="MRMenuSwitch" id="MRMenuAlwaysOpenSubtitleSwitch">\
-                <input type="checkbox" id="MRMenuAlwaysOpenSubtitleCheckbox">\
-                <div class="MRMenuSlider" id="MRMenuAlwaysOpenSubtitleSlider"></div>\
+            <label class="S9527MenuSwitch" id="S9527MenuAlwaysOpenSubtitleSwitch">\
+                <input type="checkbox" id="S9527MenuAlwaysOpenSubtitleCheckbox">\
+                <div class="S9527MenuSlider" id="S9527MenuAlwaysOpenSubtitleSlider"></div>\
             </label>\
         </div>\
-        <label class="MRMenuTitleText" id="MRMenuAlwaysDisableDnmakuText">\
+        <label class="S9527MenuTitleText" id="S9527MenuAlwaysDisableDnmakuText">\
         总是开启或关闭弹幕</label>\
-        <div class="MRMenuSplit"></div>\
-        <div class="MRMultipleOptionsParent" id="MRMenuAlwaysDisableDnmaku">\
-            <div class="MRMenuOption" id="MRMenuAlwaysDisableDnmaku0">\
-                <label class="MRMenuText" id="MRMenuAlwaysDisableDnmaku0Text">\
+        <div class="S9527MenuSplit"></div>\
+        <div class="S9527MultipleOptionsParent" id="S9527MenuAlwaysDisableDnmaku">\
+            <div class="S9527MenuOption" id="S9527MenuAlwaysDisableDnmaku0">\
+                <label class="S9527MenuText" id="S9527MenuAlwaysDisableDnmaku0Text">\
                 开启功能</label>\
-                <label class="MRMenuSwitch" id="MRMenuAlwaysDisableDnmaku0Switch">\
-                    <input type="checkbox" id="MRMenuAlwaysDisableDnmaku0Checkbox">\
-                    <div class="MRMenuSlider" id="MRMenuAlwaysDisableDnmaku0Slider"></div>\
+                <label class="S9527MenuSwitch" id="S9527MenuAlwaysDisableDnmaku0Switch">\
+                    <input type="checkbox" id="S9527MenuAlwaysDisableDnmaku0Checkbox">\
+                    <div class="S9527MenuSlider" id="S9527MenuAlwaysDisableDnmaku0Slider"></div>\
                 </label>\
             </div>\
-            <div class="MRMenuOption" id="MRMenuAlwaysDisableDnmaku1">\
-                <label class="MRMenuText" id="MRMenuAlwaysDisableDnmaku1Text">\
+            <div class="S9527MenuOption" id="S9527MenuAlwaysDisableDnmaku1">\
+                <label class="S9527MenuText" id="S9527MenuAlwaysDisableDnmaku1Text">\
                 总是开启</label>\
-                <label class="MRMenuSwitch" id="MRMenuAlwaysDisableDnmaku1Switch">\
-                    <input type="checkbox" id="MRMenuAlwaysDisableDnmaku1Checkbox">\
-                    <div class="MRMenuSlider" id="MRMenuAlwaysDisableDnmaku1Slider"></div>\
+                <label class="S9527MenuSwitch" id="S9527MenuAlwaysDisableDnmaku1Switch">\
+                    <input type="checkbox" id="S9527MenuAlwaysDisableDnmaku1Checkbox">\
+                    <div class="S9527MenuSlider" id="S9527MenuAlwaysDisableDnmaku1Slider"></div>\
                 </label>\
             </div>\
-            <div class="MRMenuOption" id="MRMenuAlwaysDisableDnmaku2">\
-                <label class="MRMenuText" id="MRMenuAlwaysDisableDnmaku2Text">\
+            <div class="S9527MenuOption" id="S9527MenuAlwaysDisableDnmaku2">\
+                <label class="S9527MenuText" id="S9527MenuAlwaysDisableDnmaku2Text">\
                 总是关闭</label>\
-                <label class="MRMenuSwitch" id="MRMenuAlwaysDisableDnmaku2Switch">\
-                    <input type="checkbox" id="MRMenuAlwaysDisableDnmaku2Checkbox">\
-                    <div class="MRMenuSlider" id="MRMenuAlwaysDisableDnmaku2Slider"></div>\
+                <label class="S9527MenuSwitch" id="S9527MenuAlwaysDisableDnmaku2Switch">\
+                    <input type="checkbox" id="S9527MenuAlwaysDisableDnmaku2Checkbox">\
+                    <div class="S9527MenuSlider" id="S9527MenuAlwaysDisableDnmaku2Slider"></div>\
                 </label>\
             </div>\
         </div>\
@@ -688,8 +688,8 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
     ';
 
     // 创建菜单样式
-    var MRMenuStyle = document.createElement('style');
-    MRMenuStyle.innerHTML = '\r\n\
+    var S9527MenuStyle = document.createElement('style');
+    S9527MenuStyle.innerHTML = '\r\n\
     /* 深色模式样式 */\r\n\
     @media(prefers-color-scheme: dark) {\r\n\
         :root {\r\n\
@@ -733,8 +733,8 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
         --defaultMargin2: 0px 0px 0px 10px;\r\n\
     }\r\n\
     \r\n\
-    /* MR菜单容器父类样式 */\r\n\
-    .MRMenuOptionParent {\r\n\
+    /* 9527菜单容器父类样式 */\r\n\
+    .S9527MenuOptionParent {\r\n\
         margin: var(--defaultMargin);\r\n\
         justify-content: space-between;\r\n\
         background-color: var(--bg2) !important;\r\n\
@@ -745,8 +745,8 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
         padding: 0px 10px 10px 0px;\r\n\
         pointer-events: none;\r\n\
     }\r\n\
-    /* MR菜单标题文本样式 */\r\n\
-    .MRMenuTitleText {\r\n\
+    /* 9527菜单标题文本样式 */\r\n\
+    .S9527MenuTitleText {\r\n\
         margin: var(--defaultMargin);\r\n\
         font-size: 16px;\r\n\
         text-align: center;\r\n\
@@ -756,8 +756,8 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
         line-height: 28px;\r\n\
         color: var(--textColor) !important;\r\n\
     }\r\n\
-    /* MR菜单标准文本样式 */\r\n\
-    .MRMenuText {\r\n\
+    /* 9527菜单标准文本样式 */\r\n\
+    .S9527MenuText {\r\n\
         margin: var(--defaultMargin2);\r\n\
         font-size: 16px;\r\n\
         text-align: center;\r\n\
@@ -767,12 +767,12 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
         line-height: 28px;\r\n\
         color: var(--textColor) !important;\r\n\
     }\r\n\
-    /* MR菜单选项样式 */\r\n\
-    .MRMenuOption {\r\n\
+    /* 9527菜单选项样式 */\r\n\
+    .S9527MenuOption {\r\n\
         margin: var(--defaultMargin);\r\n\
     }\r\n\
-    /* MR菜单开关样式 */\r\n\
-    .MRMenuSwitch {\r\n\
+    /* 9527菜单开关样式 */\r\n\
+    .S9527MenuSwitch {\r\n\
         margin: var(--defaultMargin2);\r\n\
         position: relative;\r\n\
         display: inline-block;\r\n\
@@ -780,8 +780,8 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
         height: 28px;\r\n\
     }\r\n\
     \r\n\
-    /* MR菜单开关按钮背景样式 */\r\n\
-    .MRMenuSlider {\r\n\
+    /* 9527菜单开关按钮背景样式 */\r\n\
+    .S9527MenuSlider {\r\n\
         border-radius: 26px;\r\n\
         position: absolute;\r\n\
         cursor: pointer;\r\n\
@@ -793,25 +793,25 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
         transition: .2s;\r\n\
     }\r\n\
     \r\n\
-    /* MR菜单多选项功能样式 */\r\n\
-    .MRMultipleOptionsParent {\r\n\
+    /* 9527菜单多选项功能样式 */\r\n\
+    .S9527MultipleOptionsParent {\r\n\
         display: flex;\r\n\
         flex-wrap: wrap;\r\n\
         justify-content: space-between;\r\n\
     }\r\n\
     \r\n\
     /* 隐藏复选框 */\r\n\
-    .MRMenuSwitch input {\r\n\
+    .S9527MenuSwitch input {\r\n\
         display: none;\r\n\
     }\r\n\
     \r\n\
     /* 未加载完毕父类禁止点击 */\r\n\
-    .MRMenuOptionParent[mr_is_loaded=true] {\r\n\
+    .S9527MenuOptionParent[s9527_is_loaded=true] {\r\n\
         pointer-events: unset;\r\n\
     }\r\n\
     \r\n\
     /* 开关按钮样式 */\r\n\
-    .MRMenuSlider:before {\r\n\
+    .S9527MenuSlider:before {\r\n\
         border-radius: 50%;\r\n\
         position: absolute;\r\n\
         content: "";\r\n\
@@ -824,25 +824,25 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
     }\r\n\
     \r\n\
     /* 开关不可点击时的样式 */\r\n\
-    input:checked+.MRMenuSlider[mr_disable=true] {\r\n\
+    input:checked+.S9527MenuSlider[s9527_disable=true] {\r\n\
         background-color: var(--sliderBg) !important;\r\n\
     }\r\n\
-    .MRMenuSlider[mr_disable=true]:before {\r\n\
+    .S9527MenuSlider[s9527_disable=true]:before {\r\n\
         opacity: 0.4;\r\n\
     }\r\n\
     \r\n\
     /* 开关开启样式 */\r\n\
-    input:checked+.MRMenuSlider {\r\n\
+    input:checked+.S9527MenuSlider {\r\n\
         background-color: var(--sliderBgChecked) !important;\r\n\
     }\r\n\
     \r\n\
     /* 开关开启时样式, 移动按钮到右侧 */\r\n\
-    input:checked+.MRMenuSlider:before {\r\n\
+    input:checked+.S9527MenuSlider:before {\r\n\
         transform: translateX(22px);\r\n\
     }\r\n\
     \r\n\
     /* 分割线样式 */\r\n\
-    .MRMenuSplit {\r\n\
+    .S9527MenuSplit {\r\n\
         margin: 10px 10px 0px 20px;\r\n\
         background-color: var(--split) !important;\r\n\
         border-radius: 2px;\r\n\
@@ -851,19 +851,19 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
     }\r\n\
     \r\n\
     /* 分类容器样式 */\r\n\
-    .MRMenuOptionParent {\r\n\
+    .S9527MenuOptionParent {\r\n\
         display: flex;\r\n\
         flex-wrap: wrap;\r\n\
         user-select: none;\r\n\
     }\r\n\
     /* 选项父类容器样式 */\r\n\
-    .MRMenuOption {\r\n\
+    .S9527MenuOption {\r\n\
         display: flex;\r\n\
         flex-wrap: wrap;\r\n\
         user-select: none;\r\n\
     }\r\n\
     /* 菜单关闭按钮样式 */\r\n\
-    #MRMenuCloseBtn {\r\n\
+    #S9527MenuCloseBtn {\r\n\
         width: 52px;\r\n\
         height: 30px;\r\n\
         margin: -30px 0px 0px calc(100% - 62px);\r\n\
@@ -884,107 +884,107 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
     }\r\n\
     \r\n\
     /* 菜单关闭按钮鼠标悬浮时样式 */\r\n\
-    #MRMenuCloseBtn:hover {\r\n\
+    #S9527MenuCloseBtn:hover {\r\n\
         color: rgba(255, 255, 255, 1);\r\n\
         background-color: var(--closeBtnHoverBg);\r\n\
     }\r\n\
     \r\n\
     /* 菜单关闭按钮被点击时样式 */\r\n\
-    #MRMenuCloseBtn:active {\r\n\
+    #S9527MenuCloseBtn:active {\r\n\
         color: rgba(255, 255, 255, 1);\r\n\
         background-color: var(--closeBtnActiveBg);\r\n\
     }\r\n\
     \r\n\
     /* 弹幕栏禁用隐藏 */\r\n\
-    [mr_always_display=true] {\r\n\
+    [s9527_always_display=true] {\r\n\
         display: block !important;\r\n\
     }\r\n\
     \r\n\
     /* 弹幕栏整合到播放器时隐藏白线 */\r\n\
-    .bpx-player-sending-area[mr_inside_player=true]:before {\r\n\
+    .bpx-player-sending-area[s9527_inside_player=true]:before {\r\n\
         display: none !important;\r\n\
     }\r\n\
-    .bilibili-player-video-bottom-area[mr_inside_player=true]:before {\r\n\
+    .bilibili-player-video-bottom-area[s9527_inside_player=true]:before {\r\n\
         display: none !important;\r\n\
     }\r\n\
     \r\n\
     /* 弹幕栏发送提示字体颜色 */\r\n\
-    [mr_inside_player=true]::-webkit-input-placeholder {\r\n\
+    [s9527_inside_player=true]::-webkit-input-placeholder {\r\n\
         color: hsla(0,0%,100%,0.6) !important;\r\n\
     }\r\n\
     \r\n\
     /* 显示选集按钮样式 */\r\n\
-    [mr_show_eplist=true] {\r\n\
+    [s9527_show_eplist=true] {\r\n\
         width: 36px;\r\n\
         visibility: visible;\r\n\
     }\r\n\
     \r\n\
     /* 把标题和头像移到视频下方标题样式 */\r\n\
-    #viewbox_report[mr_layout=true] {\r\n\
+    #viewbox_report[s9527_layout=true] {\r\n\
         height: 86px;\r\n\
         border-bottom: 1px solid var(--line_regular);\r\n\
         padding: 16px 0px 12px 0px;\r\n\
     }\r\n\
     /* 列表 */\r\n\
-    .video-info-container[mr_layout=true] {\r\n\
+    .video-info-container[s9527_layout=true] {\r\n\
         height: 86px;\r\n\
         border-bottom: 1px solid var(--line_regular);\r\n\
         padding: 16px 0px 12px 0px;\r\n\
     }\r\n\
     \r\n\
     /* 把标题和头像移到视频下方头像栏样式 */\r\n\
-    .up-panel-container[mr_layout=true] {\r\n\
+    .up-panel-container[s9527_layout=true] {\r\n\
         border-bottom: 1px solid var(--line_regular);\r\n\
         padding: 16px 0px 10px 0px;\r\n\
         margin: 0px;\r\n\
     }\r\n\
     /* 列表 */\r\n\
-    .up-panel-container[mr_layout=true] {\r\n\
+    .up-panel-container[s9527_layout=true] {\r\n\
         border-bottom: 1px solid var(--line_regular);\r\n\
         padding: 16px 0px 10px 0px;\r\n\
         margin: 0px;\r\n\
     }\r\n\
     /* 把标题和头像移到视频下方头像栏高度 */\r\n\
-    .up-info-container[mr_layout=true] {\r\n\
+    .up-info-container[s9527_layout=true] {\r\n\
         height: 48px;\r\n\
     }\r\n\
     \r\n\
     /* 把标题和头像移到视频下方播放器样式 */\r\n\
-    #playerWrap[mr_layout=true] {\r\n\
+    #playerWrap[s9527_layout=true] {\r\n\
         margin: 15px 0px 0px 0px;\r\n\
     }\r\n\
     \r\n\
     /* 把标题和头像移到视频下方弹幕列表样式 */\r\n\
-    #danmukuBox[mr_layout=true] {\r\n\
+    #danmukuBox[s9527_layout=true] {\r\n\
         margin: 15px 0px 0px 0px;\r\n\
     }\r\n\
     \r\n\
     /* 把标题和头像移到视频下方充电关注面板样式 */\r\n\
-    .upinfo-btn-panel[mr_layout=true] {\r\n\
+    .upinfo-btn-panel[s9527_layout=true] {\r\n\
         float: right;\r\n\
         margin: -48px 10px 0px 0px;\r\n\
     }\r\n\
     \r\n\
     /* 把标题和头像移到视频下方旧充电按钮样式 */\r\n\
-    .old-charge-btn[mr_layout=true] {\r\n\
+    .old-charge-btn[s9527_layout=true] {\r\n\
         height: 48px !important;\r\n\
     }\r\n\
     \r\n\
     /* 把标题和头像移到视频下方新充电按钮样式 */\r\n\
-    .new-charge-btn[mr_layout=true] {\r\n\
+    .new-charge-btn[s9527_layout=true] {\r\n\
         height: 48px !important;\r\n\
         margin: 0px 12px 0px 0px;\r\n\
     }\r\n\
     \r\n\
     /* 把标题和头像移到视频下方关注按钮样式 */\r\n\
-    .follow-btn[mr_layout=true] {\r\n\
+    .follow-btn[s9527_layout=true] {\r\n\
         height: 48px !important;\r\n\
         width: 130px !important;\r\n\
         padding: 0px 8px !important;\r\n\
     }\r\n\
     \r\n\
     /* 把标题和头像移到视频下方未关注按钮样式 */\r\n\
-    .not-follow[mr_layout=true] {\r\n\
+    .not-follow[s9527_layout=true] {\r\n\
         height: 48px !important;\r\n\
         width: 130px !important;\r\n\
         padding: 0px 8px !important;\r\n\
@@ -992,33 +992,33 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
     }\r\n\
     \r\n\
     /* 把标题和头像移到视频下方名称样式 */\r\n\
-    .up-name[mr_layout=true] {\r\n\
+    .up-name[s9527_layout=true] {\r\n\
         margin: 4px 0px 0px 0px;\r\n\
     }\r\n\
     /* 列表 */\r\n\
-    .up-detail-top[mr_layout=true] {\r\n\
+    .up-detail-top[s9527_layout=true] {\r\n\
         margin: 4px 0px 0px 0px;\r\n\
     }\r\n\
     \r\n\
     /* 把标题和头像移到视频下方头像装饰样式 */\r\n\
-    .has-pendant[mr_layout=true] {\r\n\
+    .has-pendant[s9527_layout=true] {\r\n\
         margin: -16px 0px -10px -8px;\r\n\
     }\r\n\
     \r\n\
     /* 把标题和头像移到视频下方联合投稿 */\r\n\
-    .mmembers-info-container[mr_layout=true] {\r\n\
+    .mmembers-info-container[s9527_layout=true] {\r\n\
         border-bottom: 1px solid var(--line_regular);\r\n\
     }\r\n\
     \r\n\
     /* 把标题和头像移到视频下方下方右侧上方间隔 */\r\n\
-    .playlist-container--right[mr_layout=true] {\r\n\
+    .playlist-container--right[s9527_layout=true] {\r\n\
         margin-top: 16px;\r\n\
     }\r\n\
-    .right-container[mr_layout=true] {\r\n\
+    .right-container[s9527_layout=true] {\r\n\
         margin-top: 16px;\r\n\
     }\r\n\
     /* 列表 */\r\n\
-    .members-info-container[mr_layout=true] {\r\n\
+    .members-info-container[s9527_layout=true] {\r\n\
         border-bottom: 1px solid var(--line_regular);\r\n\
     }\r\n\
     \r\n\
@@ -1029,7 +1029,7 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
     }\r\n\
     \r\n\
     /* 影视页网页全屏播放器高度修正 */\r\n\
-    #bilibili-player-wrap[mr_fullscreen=true] {\r\n\
+    #bilibili-player-wrap[s9527_fullscreen=true] {\r\n\
         width: auto !important;\r\n\
         height: auto !important;\r\n\
         padding: 0 !important;\r\n\
@@ -1038,46 +1038,46 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
     }\r\n\
     \r\n\
     /* 影视页网页全屏下方整体修正 */\r\n\
-    .main-container[mr_fullscreen=true] {\r\n\
+    .main-container[s9527_fullscreen=true] {\r\n\
         margin: 20px auto !important;\r\n\
         display: flex !important;\r\n\
     }\r\n\
     /* 影视页网页全屏下方整体修正 */\r\n\
-    .main-container[mr_margin_fix=true] {\r\n\
+    .main-container[s9527_margin_fix=true] {\r\n\
         margin-left: 20px !important;\r\n\
         margin-right: 20px !important;\r\n\
         width: auto !important;\r\n\
     }\r\n\
-    .player-left-components[mr_margin_fix=true] {\r\n\
+    .player-left-components[s9527_margin_fix=true] {\r\n\
         padding-right: 20px !important;\r\n\
     }\r\n\
     \r\n\
     /* 影视页网页全屏左下方修正 */\r\n\
-    .plp-l[mr_fullscreen=true] {\r\n\
+    .plp-l[s9527_fullscreen=true] {\r\n\
         padding-top: 0 !important;\r\n\
     }\r\n\
     \r\n\
     /* 影视页网页全屏右下方修正 */\r\n\
-    .plp-r[mr_fullscreen=true] {\r\n\
+    .plp-r[s9527_fullscreen=true] {\r\n\
         margin-top: 0 !important;\r\n\
         padding-top: 0 !important;\r\n\
         width: 500px !important;\r\n\
     }\r\n\
     \r\n\
     /* 影视页网页全屏观看人数和弹幕装填宽度修正 */\r\n\
-    .bpx-player-video-info[mr_fullscreen=true] {\r\n\
+    .bpx-player-video-info[s9527_fullscreen=true] {\r\n\
         width: auto !important;\r\n\
     }\r\n\
     /* 隐藏视频底部蓝条样式 */\r\n\
-    .bpx-player-shadow-progress-area[mr_hide_progress_area=true] {\r\n\
+    .bpx-player-shadow-progress-area[s9527_hide_progress_area=true] {\r\n\
         display: none !important;\r\n\
     }\r\n\
     ';
 
     // 把菜单背景移到菜单父类容器里
-    MRMenuElement.appendChild(MRMenuBackground);
+    S9527MenuElement.appendChild(S9527MenuBackground);
     // 把菜单样式移到菜单父类容器
-    MRMenuElement.appendChild(MRMenuStyle);
+    S9527MenuElement.appendChild(S9527MenuStyle);
 }
 
 (function () {
@@ -1157,126 +1157,126 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
         function afterBodyFunction() {
             // 把菜单父类容器移到body的最上方, 这里已经运行在body加载完毕, 再判定一遍body是为了以后可能会迁移到其他位置让代码看起来更规范, 性能几乎不会有影响
             if (document.body) {
-                document.body.insertBefore(MRMenuElement, document.body.children[0]);
+                document.body.insertBefore(S9527MenuElement, document.body.children[0]);
                 if (loadReady) {
-                    document.getElementById('MRMenuStatus').textContent = '';
+                    document.getElementById('S9527MenuStatus').textContent = '';
                 }
-                console.log('[' + notificationScriptName + '-' + notificationNotification + '] ' + 'MR菜单创建完毕');
+                console.log('[' + notificationScriptName + '-' + notificationNotification + '] ' + '9527菜单创建完毕');
             }
-            // 鼠标拖拽MR菜单事件, 鼠标抬起和拖拽动作挂载到window上是为了防止鼠标移动过快脱离MR菜单元素
-            document.getElementById('MRMenuBackground').onmousedown = function (e) {
+            // 鼠标拖拽9527菜单事件, 鼠标抬起和拖拽动作挂载到window上是为了防止鼠标移动过快脱离9527菜单元素
+            document.getElementById('S9527MenuBackground').onmousedown = function (e) {
                 // 这里的e是触发事件的目标, 这里也就是鼠标
-                isMRMenuMovingX = e.pageX - document.getElementById('MRMenuBackground').offsetLeft;
-                isMRMenuMovingY = e.pageY - document.getElementById('MRMenuBackground').offsetTop;
-                isMRMenuMoving = true;
+                isS9527MenuMovingX = e.pageX - document.getElementById('S9527MenuBackground').offsetLeft;
+                isS9527MenuMovingY = e.pageY - document.getElementById('S9527MenuBackground').offsetTop;
+                isS9527MenuMoving = true;
             }
             window.onmouseup = function () {
-                isMRMenuMoving = false;
+                isS9527MenuMoving = false;
             }
             window.onblur = function () {
                 // 失焦后阻止菜单继续跟随鼠标
-                isMRMenuMoving = false;
+                isS9527MenuMoving = false;
             }
             window.onmousemove = function (e) {
-                if (isMRMenuMoving) {
-                    document.getElementById('MRMenuBackground').style.left = e.pageX - isMRMenuMovingX + 'px';
-                    document.getElementById('MRMenuBackground').style.top = e.pageY - isMRMenuMovingY + 'px';
+                if (isS9527MenuMoving) {
+                    document.getElementById('S9527MenuBackground').style.left = e.pageX - isS9527MenuMovingX + 'px';
+                    document.getElementById('S9527MenuBackground').style.top = e.pageY - isS9527MenuMovingY + 'px';
                 }
             }
             // 自述
             if (GM_getValue('MRMenuReadme') == 1) {
                 GM_setValue('MRMenuReadme', 0);
-                document.getElementById('MRMenuReadme').style.display = 'flex';
+                document.getElementById('S9527MenuReadme').style.display = 'flex';
             }
 
             // 修正按钮开关状态
             // 播放模式
             if (GM_getValue('MRPlayerMode') == 0) {
-                document.getElementById('MRMenuNormalCheckbox').checked = true;
+                document.getElementById('S9527MenuNormalCheckbox').checked = true;
 
-                document.getElementById('MRMenuNormalSwitch').style.pointerEvents = 'none';
-                document.getElementById('MRMenuAutoWidescreenSwitch').style.pointerEvents = '';
-                document.getElementById('MRMenuFullscreenSwitch').style.pointerEvents = '';
+                document.getElementById('S9527MenuNormalSwitch').style.pointerEvents = 'none';
+                document.getElementById('S9527MenuAutoWidescreenSwitch').style.pointerEvents = '';
+                document.getElementById('S9527MenuFullscreenSwitch').style.pointerEvents = '';
             } else if (GM_getValue('MRPlayerMode') == 1) {
-                document.getElementById('MRMenuAutoWidescreenCheckbox').checked = true;
+                document.getElementById('S9527MenuAutoWidescreenCheckbox').checked = true;
 
-                document.getElementById('MRMenuNormalSwitch').style.pointerEvents = '';
-                document.getElementById('MRMenuAutoWidescreenSwitch').style.pointerEvents = 'none';
-                document.getElementById('MRMenuFullscreenSwitch').style.pointerEvents = '';
+                document.getElementById('S9527MenuNormalSwitch').style.pointerEvents = '';
+                document.getElementById('S9527MenuAutoWidescreenSwitch').style.pointerEvents = 'none';
+                document.getElementById('S9527MenuFullscreenSwitch').style.pointerEvents = '';
             } else if (GM_getValue('MRPlayerMode') == 2) {
-                document.getElementById('MRMenuFullscreenCheckbox').checked = true;
+                document.getElementById('S9527MenuFullscreenCheckbox').checked = true;
 
-                document.getElementById('MRMenuNormalSwitch').style.pointerEvents = '';
-                document.getElementById('MRMenuAutoWidescreenSwitch').style.pointerEvents = '';
-                document.getElementById('MRMenuFullscreenSwitch').style.pointerEvents = 'none';
+                document.getElementById('S9527MenuNormalSwitch').style.pointerEvents = '';
+                document.getElementById('S9527MenuAutoWidescreenSwitch').style.pointerEvents = '';
+                document.getElementById('S9527MenuFullscreenSwitch').style.pointerEvents = 'none';
             }
             // 非网页全屏模式下禁用按钮
             if (GM_getValue('MRPlayerMode') != 2) {
                 // 移动导航栏到视频下方
-                disableBtn(document.getElementById('MRMenuMoveNavigationBarSwitch'));
+                disableBtn(document.getElementById('S9527MenuMoveNavigationBarSwitch'));
                 // 调整下方左右边距
-                disableBtn(document.getElementById('MRMenuDownLayoutPaddingSwitch'));
+                disableBtn(document.getElementById('S9527MenuDownLayoutPaddingSwitch'));
                 // 将弹幕栏整合到播放器内
-                disableBtn(document.getElementById('MRMenuPutSendingBarInPlayerSwitch'));
+                disableBtn(document.getElementById('S9527MenuPutSendingBarInPlayerSwitch'));
             }
 
             // 自定义布局
             // 移动导航栏到视频下方
             if (GM_getValue('MRMenuMoveNavigationBar') == 1) {
-                document.getElementById('MRMenuMoveNavigationBarCheckbox').checked = true;
+                document.getElementById('S9527MenuMoveNavigationBarCheckbox').checked = true;
             }
             // 隐藏新版反馈和旧版按钮
             if (GM_getValue('MRMenuHideFeedbackBtn') == 1) {
-                document.getElementById('MRMenuHideFeedbackBtnCheckbox').checked = true;
+                document.getElementById('S9527MenuHideFeedbackBtnCheckbox').checked = true;
             }
             // 调整下方左右边距
             if (GM_getValue('MRMenuDownLayoutPadding') == 1) {
-                document.getElementById('MRMenuDownLayoutPaddingCheckbox').checked = true;
+                document.getElementById('S9527MenuDownLayoutPaddingCheckbox').checked = true;
             }
             // 导航栏搜索框长度占满
             if (GM_getValue('MRMenuDownLayoutSearchBarFull') == 1) {
-                document.getElementById('MRMenuSearchBarFullCheckbox').checked = true;
+                document.getElementById('S9527MenuSearchBarFullCheckbox').checked = true;
                 searchBarFull();
             }
             // 将弹幕栏整合到播放器内
             if (GM_getValue('MRMenuPutSendingBarInPlayer') == 1) {
-                document.getElementById('MRMenuPutSendingBarInPlayerCheckbox').checked = true;
+                document.getElementById('S9527MenuPutSendingBarInPlayerCheckbox').checked = true;
             }
             // 隐藏观看人数和弹幕装填信息
             if (GM_getValue('MRMenuHideVideoInfo') == 1) {
-                document.getElementById('MRMenuHideVideoInfoCheckbox').checked = true;
+                document.getElementById('S9527MenuHideVideoInfoCheckbox').checked = true;
             }
             // 播放器内显示选集按钮
             if (GM_getValue('MRMenuDisplayEplist') == 1) {
-                document.getElementById('MRMenuDisplayEplistCheckbox').checked = true;
+                document.getElementById('S9527MenuDisplayEplistCheckbox').checked = true;
             }
             // 播放器内显示标题
             if (GM_getValue('MRMenuDisplayTitle') == 1) {
-                document.getElementById('MRMenuDisplayTitleCheckbox').checked = true;
+                document.getElementById('S9527MenuDisplayTitleCheckbox').checked = true;
                 displayTitle();
             }
             // 隐藏播放器内关注按钮
             if (GM_getValue('MRMenuHideFollowBtn') == 1) {
-                document.getElementById('MRMenuHideFollowBtnCheckbox').checked = true;
+                document.getElementById('S9527MenuHideFollowBtnCheckbox').checked = true;
             }
             // 把标题和头像移到视频下方
             if (GM_getValue('MRMenuMoveTitleAndUpinfo') == 1) {
-                document.getElementById('MRMenuMoveTitleAndUpinfoCheckbox').checked = true;
+                document.getElementById('S9527MenuMoveTitleAndUpinfoCheckbox').checked = true;
             }
             // 优化工具提示弹窗
             if (GM_getValue('MRMenuBetterToolTip') == 1) {
-                document.getElementById('MRMenuBetterToolTipCheckbox').checked = true;
+                document.getElementById('S9527MenuBetterToolTipCheckbox').checked = true;
                 betterToolTip();
             }
             // 隐藏视频底部蓝条
             if (GM_getValue('MRMenuHideProgressArea') == 1) {
-                document.getElementById('MRMenuHideProgressAreaCheckbox').checked = true;
+                document.getElementById('S9527MenuHideProgressAreaCheckbox').checked = true;
                 hideProgressArea();
             }
             // 隐藏导航栏标签
             for (let i = 0; i < GM_getValue('MRMenuHideNavigationBarTag').split('').length; i++) {
                 if (GM_getValue('MRMenuHideNavigationBarTag').split('')[i] == 1) {
-                    document.getElementById('MRMenuHideNavigationBarTag' + i + 'Checkbox').checked = true;
+                    document.getElementById('S9527MenuHideNavigationBarTag' + i + 'Checkbox').checked = true;
                 }
             }
             hideNavigationBarTag();
@@ -1284,83 +1284,83 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
             // 实用功能与工具
             // 菜单半透明
             if (GM_getValue('MRMenuTransparent') != 1) {
-                document.getElementById('MRMenuTransparentCheckbox').checked = true;
+                document.getElementById('S9527MenuTransparentCheckbox').checked = true;
             }
             // 智能连播
             if (GM_getValue('MRMenuSmartNextPlay') == 1) {
-                document.getElementById('MRMenuSmartNextPlayCheckbox').checked = true;
+                document.getElementById('S9527MenuSmartNextPlayCheckbox').checked = true;
             }
             // 播放器加载完毕后移动窗口到顶部
             if (GM_getValue('MRMenuMoveWindowToTop') == 1) {
-                document.getElementById('MRMenuMoveWindowToTopCheckbox').checked = true;
+                document.getElementById('S9527MenuMoveWindowToTopCheckbox').checked = true;
                 // 刷新&重载网页后会记录当前位置, 例如网页全屏模式下没加载完成前可能会处于网页中部, 先移动一次窗口到顶部提升观感, 反正最后都要移到顶部, 多移动一次也无所谓啦
                 moveWindowToTop();
             }
             // 去除宽屏模式左右黑边
             if (GM_getValue('MRMenuRemoveWidescreenBlack') == 1) {
-                document.getElementById('MRMenuRemoveWidescreenBlackCheckbox').checked = true;
+                document.getElementById('S9527MenuRemoveWidescreenBlackCheckbox').checked = true;
             }
             removeWidescreenBlack();
             // 去除评论区蓝色关键字
             if (GM_getValue('MRMenuRemoveKeyword') == 1) {
-                document.getElementById('MRMenuRemoveKeywordCheckbox').checked = true;
+                document.getElementById('S9527MenuRemoveKeywordCheckbox').checked = true;
                 removeKeyword();
             }
             // 去除评论区只有@人的无用评论
             if (GM_getValue('MRMenuRemoveUselessComment') == 1) {
-                document.getElementById('MRMenuRemoveUselessCommentCheckbox').checked = true;
+                document.getElementById('S9527MenuRemoveUselessCommentCheckbox').checked = true;
                 removeUselessComment();
             }
             // 更多倍速
             if (GM_getValue('MRMenuMoreVideoSpeed') == 1) {
-                document.getElementById('MRMenuMoreVideoSpeedCheckbox').checked = true;
+                document.getElementById('S9527MenuMoreVideoSpeedCheckbox').checked = true;
                 moreVideoSpeed();
             }
             // 稍后再看页面替换网址
             if (GM_getValue('MRMenuWatchLaterReplaceURL') == 1) {
-                document.getElementById('MRMenuWatchLaterReplaceURLCheckbox').checked = true;
+                document.getElementById('S9527MenuWatchLaterReplaceURLCheckbox').checked = true;
                 watchLaterReplaceURL();
             }
             // 按ESC退出图片预览
             if (GM_getValue('MRMenuEscQuitViewImage') == 1) {
-                document.getElementById('MRMenuEscQuitViewImageCheckbox').checked = true;
+                document.getElementById('S9527MenuEscQuitViewImageCheckbox').checked = true;
             }
             // 修复视频小窗口延迟
             if (GM_getValue('MRMenuFixPIPDelay') == 1) {
-                document.getElementById('MRMenuFixPIPDelayCheckbox').checked = true;
+                document.getElementById('S9527MenuFixPIPDelayCheckbox').checked = true;
                 fixPIPDelay();
             }
             // 总是开启字幕
             if (GM_getValue('MRMenuAlwaysOpenSubtitle') == 1) {
-                document.getElementById('MRMenuAlwaysOpenSubtitleCheckbox').checked = true;
+                document.getElementById('S9527MenuAlwaysOpenSubtitleCheckbox').checked = true;
                 alwaysOpenSubtitle();
             }
             // 总是开启或关闭弹幕
             for (let i = 0; i < GM_getValue('MRMenuAlwaysDisableDnmaku').split('').length; i++) {
                 if (GM_getValue('MRMenuAlwaysDisableDnmaku').split('')[i] == 1) {
-                    document.getElementById('MRMenuAlwaysDisableDnmaku' + i + 'Checkbox').checked = true;
+                    document.getElementById('S9527MenuAlwaysDisableDnmaku' + i + 'Checkbox').checked = true;
                 }
                 if (GM_getValue('MRMenuAlwaysDisableDnmaku').split('')[0] == 0 && i != 0) {
-                    disableBtn(document.getElementById('MRMenuAlwaysDisableDnmaku' + i + 'Switch'));
+                    disableBtn(document.getElementById('S9527MenuAlwaysDisableDnmaku' + i + 'Switch'));
                 }
             }
             alwaysDisableDnmaku();
         }
 
-        // 注册MR菜单按钮/开关事件
+        // 注册9527菜单按钮/开关事件
         function btnFunction() {
             // 关闭按钮
-            document.getElementById('MRMenuCloseBtn').addEventListener('click', function () {
+            document.getElementById('S9527MenuCloseBtn').addEventListener('click', function () {
                 GM_setValue('MRMenuSwitch', 0);
-                MRMenuElement.style.cssText += 'pointer-events: none; opacity: 0;';
-                if (document.getElementById('MRMenuReadme').style.display == 'flex') {
-                    document.getElementById('MRMenuReadme').style.display = 'none';
+                S9527MenuElement.style.cssText += 'pointer-events: none; opacity: 0;';
+                if (document.getElementById('S9527MenuReadme').style.display == 'flex') {
+                    document.getElementById('S9527MenuReadme').style.display = 'none';
                 }
             });
 
             // 播放器模式
             // 默认模式
-            document.getElementById('MRMenuNormalSlider').addEventListener('click', function () {
+            document.getElementById('S9527MenuNormalSlider').addEventListener('click', function () {
                 if (GM_getValue('MRPlayerMode') != 0) {
                     if (GM_getValue('MRPlayerMode') == 1) {
                         GM_setValue('MRPlayerMode', 0);
@@ -1371,20 +1371,20 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
                         autoWidescreen();
                     }
                     //关闭其他按钮
-                    document.getElementById('MRMenuAutoWidescreenCheckbox').checked = false;
-                    document.getElementById('MRMenuFullscreenCheckbox').checked = false;
+                    document.getElementById('S9527MenuAutoWidescreenCheckbox').checked = false;
+                    document.getElementById('S9527MenuFullscreenCheckbox').checked = false;
 
                     // 点击过后把当前按钮设为不可点击状态, 把其他按钮设成可点击状态
-                    document.getElementById('MRMenuNormalSwitch').style.pointerEvents = 'none';
-                    document.getElementById('MRMenuAutoWidescreenSwitch').style.pointerEvents = '';
-                    document.getElementById('MRMenuFullscreenSwitch').style.pointerEvents = '';
+                    document.getElementById('S9527MenuNormalSwitch').style.pointerEvents = 'none';
+                    document.getElementById('S9527MenuAutoWidescreenSwitch').style.pointerEvents = '';
+                    document.getElementById('S9527MenuFullscreenSwitch').style.pointerEvents = '';
 
                     // 移动导航栏到视频下方
-                    disableBtn(document.getElementById('MRMenuMoveNavigationBarSwitch'));
+                    disableBtn(document.getElementById('S9527MenuMoveNavigationBarSwitch'));
                     // 调整下方左右边距
-                    disableBtn(document.getElementById('MRMenuDownLayoutPaddingSwitch'));
+                    disableBtn(document.getElementById('S9527MenuDownLayoutPaddingSwitch'));
                     // 将弹幕栏整合到播放器内
-                    disableBtn(document.getElementById('MRMenuPutSendingBarInPlayerSwitch'));
+                    disableBtn(document.getElementById('S9527MenuPutSendingBarInPlayerSwitch'));
                     // 移动窗口到顶部
                     if (GM_getValue('MRMenuMoveWindowToTop') == 1) {
                         moveWindowToTop();
@@ -1394,7 +1394,7 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
                 }
             });
             // 自动宽屏模式
-            document.getElementById('MRMenuAutoWidescreenSlider').addEventListener('click', function () {
+            document.getElementById('S9527MenuAutoWidescreenSlider').addEventListener('click', function () {
                 if (GM_getValue('MRPlayerMode') != 1) {
                     if (GM_getValue('MRPlayerMode') == 2) {
                         GM_setValue('MRPlayerMode', 1);
@@ -1403,27 +1403,27 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
                         GM_setValue('MRPlayerMode', 1);
                     }
                     //关闭其他按钮
-                    document.getElementById('MRMenuNormalCheckbox').checked = false;
-                    document.getElementById('MRMenuFullscreenCheckbox').checked = false;
+                    document.getElementById('S9527MenuNormalCheckbox').checked = false;
+                    document.getElementById('S9527MenuFullscreenCheckbox').checked = false;
                     autoWidescreen();
 
                     // 点击过后把当前按钮设为不可点击状态, 把其他按钮设成可点击状态
-                    document.getElementById('MRMenuNormalSwitch').style.pointerEvents = '';
-                    document.getElementById('MRMenuAutoWidescreenSwitch').style.pointerEvents = 'none';
-                    document.getElementById('MRMenuFullscreenSwitch').style.pointerEvents = '';
+                    document.getElementById('S9527MenuNormalSwitch').style.pointerEvents = '';
+                    document.getElementById('S9527MenuAutoWidescreenSwitch').style.pointerEvents = 'none';
+                    document.getElementById('S9527MenuFullscreenSwitch').style.pointerEvents = '';
 
                     // 移动导航栏到视频下方
-                    disableBtn(document.getElementById('MRMenuMoveNavigationBarSwitch'));
+                    disableBtn(document.getElementById('S9527MenuMoveNavigationBarSwitch'));
                     // 调整下方左右边距
-                    disableBtn(document.getElementById('MRMenuDownLayoutPaddingSwitch'));
+                    disableBtn(document.getElementById('S9527MenuDownLayoutPaddingSwitch'));
                     // 将弹幕栏整合到播放器内
-                    disableBtn(document.getElementById('MRMenuPutSendingBarInPlayerSwitch'));
+                    disableBtn(document.getElementById('S9527MenuPutSendingBarInPlayerSwitch'));
                     // 把标题和头像移到视频下方
                     moveTitleAndUpinfo();
                 }
             });
             // 网页全屏模式
-            document.getElementById('MRMenuFullscreenSlider').addEventListener('click', function () {
+            document.getElementById('S9527MenuFullscreenSlider').addEventListener('click', function () {
                 if (GM_getValue('MRPlayerMode') != 2) {
                     if (GM_getValue('MRPlayerMode') == 1) {
                         GM_setValue('MRPlayerMode', 2);
@@ -1433,21 +1433,21 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
                         autoWidescreen();
                     }
                     //关闭其他按钮
-                    document.getElementById('MRMenuNormalCheckbox').checked = false;
-                    document.getElementById('MRMenuAutoWidescreenCheckbox').checked = false;
+                    document.getElementById('S9527MenuNormalCheckbox').checked = false;
+                    document.getElementById('S9527MenuAutoWidescreenCheckbox').checked = false;
                     fullscreen();
 
                     // 点击过后把当前按钮设为不可点击状态, 把其他按钮设成可点击状态
-                    document.getElementById('MRMenuNormalSwitch').style.pointerEvents = '';
-                    document.getElementById('MRMenuAutoWidescreenSwitch').style.pointerEvents = '';
-                    document.getElementById('MRMenuFullscreenSwitch').style.pointerEvents = 'none';
+                    document.getElementById('S9527MenuNormalSwitch').style.pointerEvents = '';
+                    document.getElementById('S9527MenuAutoWidescreenSwitch').style.pointerEvents = '';
+                    document.getElementById('S9527MenuFullscreenSwitch').style.pointerEvents = 'none';
 
                     // 移动导航栏到视频下方
-                    enableBtn(document.getElementById('MRMenuMoveNavigationBarSwitch'));
+                    enableBtn(document.getElementById('S9527MenuMoveNavigationBarSwitch'));
                     // 调整下方左右边距
-                    enableBtn(document.getElementById('MRMenuDownLayoutPaddingSwitch'));
+                    enableBtn(document.getElementById('S9527MenuDownLayoutPaddingSwitch'));
                     // 将弹幕栏整合到播放器内
-                    enableBtn(document.getElementById('MRMenuPutSendingBarInPlayerSwitch'));
+                    enableBtn(document.getElementById('S9527MenuPutSendingBarInPlayerSwitch'));
                     // 把标题和头像移到视频下方
                     moveTitleAndUpinfo();
                 }
@@ -1455,7 +1455,7 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
 
             // 自定义布局
             // 移动导航栏到视频下方
-            document.getElementById('MRMenuMoveNavigationBarSlider').addEventListener('click', function () {
+            document.getElementById('S9527MenuMoveNavigationBarSlider').addEventListener('click', function () {
                 if (GM_getValue('MRMenuMoveNavigationBar') == 0) {
                     GM_setValue('MRMenuMoveNavigationBar', 1);
                     moveNavigationBar();
@@ -1465,7 +1465,7 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
                 }
             });
             // 隐藏新版反馈和旧版按钮
-            document.getElementById('MRMenuHideFeedbackBtnSlider').addEventListener('click', function () {
+            document.getElementById('S9527MenuHideFeedbackBtnSlider').addEventListener('click', function () {
                 if (GM_getValue('MRMenuHideFeedbackBtn') == 0) {
                     GM_setValue('MRMenuHideFeedbackBtn', 1);
                     hideFeedbackBtn();
@@ -1475,7 +1475,7 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
                 }
             });
             // 调整下方左右边距
-            document.getElementById('MRMenuDownLayoutPaddingSlider').addEventListener('click', function () {
+            document.getElementById('S9527MenuDownLayoutPaddingSlider').addEventListener('click', function () {
                 if (GM_getValue('MRMenuDownLayoutPadding') == 0) {
                     GM_setValue('MRMenuDownLayoutPadding', 1);
                     downLayoutPadding();
@@ -1485,7 +1485,7 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
                 }
             });
             // 导航栏搜索框长度占满
-            document.getElementById('MRMenuSearchBarFullSlider').addEventListener('click', function () {
+            document.getElementById('S9527MenuSearchBarFullSlider').addEventListener('click', function () {
                 if (GM_getValue('MRMenuDownLayoutSearchBarFull') == 0) {
                     GM_setValue('MRMenuDownLayoutSearchBarFull', 1);
                     searchBarFull();
@@ -1495,7 +1495,7 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
                 }
             });
             // 将弹幕栏整合到播放器内
-            document.getElementById('MRMenuPutSendingBarInPlayerSlider').addEventListener('click', function () {
+            document.getElementById('S9527MenuPutSendingBarInPlayerSlider').addEventListener('click', function () {
                 if (GM_getValue('MRMenuPutSendingBarInPlayer') == 0) {
                     GM_setValue('MRMenuPutSendingBarInPlayer', 1);
                     putSendingBarInPlayer();
@@ -1505,7 +1505,7 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
                 }
             });
             // 隐藏观看人数和弹幕装填信息
-            document.getElementById('MRMenuHideVideoInfoSlider').addEventListener('click', function () {
+            document.getElementById('S9527MenuHideVideoInfoSlider').addEventListener('click', function () {
                 if (GM_getValue('MRMenuHideVideoInfo') == 0) {
                     GM_setValue('MRMenuHideVideoInfo', 1);
                     hideVideoInfo();
@@ -1515,7 +1515,7 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
                 }
             });
             // 播放器内显示选集按钮
-            document.getElementById('MRMenuDisplayEplistSlider').addEventListener('click', function () {
+            document.getElementById('S9527MenuDisplayEplistSlider').addEventListener('click', function () {
                 if (GM_getValue('MRMenuDisplayEplist') == 0) {
                     GM_setValue('MRMenuDisplayEplist', 1);
                 } else {
@@ -1523,7 +1523,7 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
                 }
             });
             // 播放器内显示标题
-            document.getElementById('MRMenuDisplayTitleSlider').addEventListener('click', function () {
+            document.getElementById('S9527MenuDisplayTitleSlider').addEventListener('click', function () {
                 if (GM_getValue('MRMenuDisplayTitle') == 0) {
                     GM_setValue('MRMenuDisplayTitle', 1);
                     displayTitle();
@@ -1533,7 +1533,7 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
                 }
             });
             // 隐藏播放器内关注按钮
-            document.getElementById('MRMenuHideFollowBtnSlider').addEventListener('click', function () {
+            document.getElementById('S9527MenuHideFollowBtnSlider').addEventListener('click', function () {
                 if (GM_getValue('MRMenuHideFollowBtn') == 0) {
                     GM_setValue('MRMenuHideFollowBtn', 1);
                     hideFollowBtn();
@@ -1543,7 +1543,7 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
                 }
             });
             // 把标题和头像移到视频下方
-            document.getElementById('MRMenuMoveTitleAndUpinfoSlider').addEventListener('click', function () {
+            document.getElementById('S9527MenuMoveTitleAndUpinfoSlider').addEventListener('click', function () {
                 if (GM_getValue('MRMenuMoveTitleAndUpinfo') == 0) {
                     GM_setValue('MRMenuMoveTitleAndUpinfo', 1);
                     moveTitleAndUpinfo();
@@ -1553,7 +1553,7 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
                 }
             });
             // 优化工具提示弹窗
-            document.getElementById('MRMenuBetterToolTipSlider').addEventListener('click', function () {
+            document.getElementById('S9527MenuBetterToolTipSlider').addEventListener('click', function () {
                 if (GM_getValue('MRMenuBetterToolTip') == 0) {
                     GM_setValue('MRMenuBetterToolTip', 1);
                     betterToolTip();
@@ -1563,7 +1563,7 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
                 }
             });
             // 隐藏视频底部蓝条
-            document.getElementById('MRMenuHideProgressAreaSlider').addEventListener('click', function () {
+            document.getElementById('S9527MenuHideProgressAreaSlider').addEventListener('click', function () {
                 if (GM_getValue('MRMenuHideProgressArea') == 0) {
                     GM_setValue('MRMenuHideProgressArea', 1);
                     hideProgressArea();
@@ -1574,12 +1574,12 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
             });
             // 隐藏导航栏标签
             for (let i = 0; i < GM_getValue('MRMenuHideNavigationBarTag').split('').length; i++) {
-                document.getElementById('MRMenuHideNavigationBarTag' + i + 'Checkbox').addEventListener('click', function () {
+                document.getElementById('S9527MenuHideNavigationBarTag' + i + 'Checkbox').addEventListener('click', function () {
                     let num = this.id.replace(/[^0-9]/ig, '');
                     if (GM_getValue('MRMenuHideNavigationBarTag').split('')[num] == 0) {
-                        changeText('MRMenuHideNavigationBarTag', num, '1');
+                        changeText('S9527MenuHideNavigationBarTag', num, '1');
                     } else {
-                        changeText('MRMenuHideNavigationBarTag', num, '0');
+                        changeText('S9527MenuHideNavigationBarTag', num, '0');
                     }
                     hideNavigationBarTag();
                 })
@@ -1587,16 +1587,16 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
 
             // 实用功能与工具
             // 菜单半透明
-            document.getElementById('MRMenuTransparentSlider').addEventListener('click', function () {
+            document.getElementById('S9527MenuTransparentSlider').addEventListener('click', function () {
                 if (GM_getValue('MRMenuTransparent') == 1) {
                     GM_setValue('MRMenuTransparent', 0.7);
                 } else {
                     GM_setValue('MRMenuTransparent', 1);
                 }
-                MRMenuElement.style.cssText += 'opacity: ' + GM_getValue('MRMenuTransparent') + ';';
+                S9527MenuElement.style.cssText += 'opacity: ' + GM_getValue('MRMenuTransparent') + ';';
             });
             // 播放器加载完毕后移动窗口到顶部
-            document.getElementById('MRMenuMoveWindowToTopSlider').addEventListener('click', function () {
+            document.getElementById('S9527MenuMoveWindowToTopSlider').addEventListener('click', function () {
                 if (GM_getValue('MRMenuMoveWindowToTop') == 0) {
                     GM_setValue('MRMenuMoveWindowToTop', 1);
                     moveWindowToTop();
@@ -1605,7 +1605,7 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
                 }
             });
             // 去除宽屏模式左右黑边
-            document.getElementById('MRMenuRemoveWidescreenBlackSlider').addEventListener('click', function () {
+            document.getElementById('S9527MenuRemoveWidescreenBlackSlider').addEventListener('click', function () {
                 if (GM_getValue('MRMenuRemoveWidescreenBlack') == 0) {
                     GM_setValue('MRMenuRemoveWidescreenBlack', 1);
                 } else {
@@ -1613,7 +1613,7 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
                 }
             });
             // 去除评论区蓝色关键字
-            document.getElementById('MRMenuRemoveKeywordSlider').addEventListener('click', function () {
+            document.getElementById('S9527MenuRemoveKeywordSlider').addEventListener('click', function () {
                 if (GM_getValue('MRMenuRemoveKeyword') == 0) {
                     GM_setValue('MRMenuRemoveKeyword', 1);
                 } else {
@@ -1622,7 +1622,7 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
                 removeKeyword();
             });
             // 去除评论区只有@人的无用评论
-            document.getElementById('MRMenuRemoveUselessCommentSlider').addEventListener('click', function () {
+            document.getElementById('S9527MenuRemoveUselessCommentSlider').addEventListener('click', function () {
                 if (GM_getValue('MRMenuRemoveUselessComment') == 0) {
                     GM_setValue('MRMenuRemoveUselessComment', 1);
                 } else {
@@ -1631,7 +1631,7 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
                 removeUselessComment();
             });
             // 智能连播
-            document.getElementById('MRMenuSmartNextPlaySlider').addEventListener('click', function () {
+            document.getElementById('S9527MenuSmartNextPlaySlider').addEventListener('click', function () {
                 if (GM_getValue('MRMenuSmartNextPlay') == 0) {
                     GM_setValue('MRMenuSmartNextPlay', 1);
                 } else {
@@ -1639,7 +1639,7 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
                 }
             });
             // 更多倍速
-            document.getElementById('MRMenuMoreVideoSpeedSlider').addEventListener('click', function () {
+            document.getElementById('S9527MenuMoreVideoSpeedSlider').addEventListener('click', function () {
                 if (GM_getValue('MRMenuMoreVideoSpeed') == 0) {
                     GM_setValue('MRMenuMoreVideoSpeed', 1);
                 } else {
@@ -1648,7 +1648,7 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
                 moreVideoSpeed();
             });
             // 稍后再看页面替换网址
-            document.getElementById('MRMenuWatchLaterReplaceURLSlider').addEventListener('click', function () {
+            document.getElementById('S9527MenuWatchLaterReplaceURLSlider').addEventListener('click', function () {
                 if (GM_getValue('MRMenuWatchLaterReplaceURL') == 0) {
                     GM_setValue('MRMenuWatchLaterReplaceURL', 1);
                 } else {
@@ -1657,7 +1657,7 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
                 watchLaterReplaceURL();
             });
             // 按ESC退出图片预览
-            document.getElementById('MRMenuEscQuitViewImageSlider').addEventListener('click', function () {
+            document.getElementById('S9527MenuEscQuitViewImageSlider').addEventListener('click', function () {
                 if (GM_getValue('MRMenuEscQuitViewImage') == 0) {
                     GM_setValue('MRMenuEscQuitViewImage', 1);
                 } else {
@@ -1665,7 +1665,7 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
                 }
             });
             // 修复视频小窗口延迟
-            document.getElementById('MRMenuFixPIPDelaySlider').addEventListener('click', function () {
+            document.getElementById('S9527MenuFixPIPDelaySlider').addEventListener('click', function () {
                 if (GM_getValue('MRMenuFixPIPDelay') == 0) {
                     GM_setValue('MRMenuFixPIPDelay', 1);
                 } else {
@@ -1674,7 +1674,7 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
                 fixPIPDelay();
             });
             // 总是开启字幕
-            document.getElementById('MRMenuAlwaysOpenSubtitleSlider').addEventListener('click', function () {
+            document.getElementById('S9527MenuAlwaysOpenSubtitleSlider').addEventListener('click', function () {
                 if (GM_getValue('MRMenuAlwaysOpenSubtitle') == 0) {
                     GM_setValue('MRMenuAlwaysOpenSubtitle', 1);
                 } else {
@@ -1683,40 +1683,40 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
                 alwaysOpenSubtitle();
             });
             // 总是开启或关闭弹幕
-            document.getElementById('MRMenuAlwaysDisableDnmaku0Checkbox').addEventListener('click', function () {
+            document.getElementById('S9527MenuAlwaysDisableDnmaku0Checkbox').addEventListener('click', function () {
                 if (GM_getValue('MRMenuAlwaysDisableDnmaku').split('')[0] == 0) {
-                    changeText('MRMenuAlwaysDisableDnmaku', 0, '1');
+                    changeText('S9527MenuAlwaysDisableDnmaku', 0, '1');
 
-                    enableBtn(document.getElementById('MRMenuAlwaysDisableDnmaku1Switch'));
-                    enableBtn(document.getElementById('MRMenuAlwaysDisableDnmaku2Switch'));
+                    enableBtn(document.getElementById('S9527MenuAlwaysDisableDnmaku1Switch'));
+                    enableBtn(document.getElementById('S9527MenuAlwaysDisableDnmaku2Switch'));
                 } else {
-                    changeText('MRMenuAlwaysDisableDnmaku', 0, '0');
+                    changeText('S9527MenuAlwaysDisableDnmaku', 0, '0');
 
-                    disableBtn(document.getElementById('MRMenuAlwaysDisableDnmaku1Switch'));
-                    disableBtn(document.getElementById('MRMenuAlwaysDisableDnmaku2Switch'));
+                    disableBtn(document.getElementById('S9527MenuAlwaysDisableDnmaku1Switch'));
+                    disableBtn(document.getElementById('S9527MenuAlwaysDisableDnmaku2Switch'));
                 }
             });
-            document.getElementById('MRMenuAlwaysDisableDnmaku1Checkbox').addEventListener('click', function () {
+            document.getElementById('S9527MenuAlwaysDisableDnmaku1Checkbox').addEventListener('click', function () {
                 if (GM_getValue('MRMenuAlwaysDisableDnmaku').split('')[1] == 0) {
-                    changeText('MRMenuAlwaysDisableDnmaku', 1, '1');
-                    changeText('MRMenuAlwaysDisableDnmaku', 2, '0');
+                    changeText('S9527MenuAlwaysDisableDnmaku', 1, '1');
+                    changeText('S9527MenuAlwaysDisableDnmaku', 2, '0');
 
-                    document.getElementById('MRMenuAlwaysDisableDnmaku2Checkbox').checked = false;
+                    document.getElementById('S9527MenuAlwaysDisableDnmaku2Checkbox').checked = false;
 
-                    document.getElementById('MRMenuAlwaysDisableDnmaku1Switch').style.pointerEvents = 'none';
-                    document.getElementById('MRMenuAlwaysDisableDnmaku2Switch').style.pointerEvents = '';
+                    document.getElementById('S9527MenuAlwaysDisableDnmaku1Switch').style.pointerEvents = 'none';
+                    document.getElementById('S9527MenuAlwaysDisableDnmaku2Switch').style.pointerEvents = '';
                 }
                 alwaysDisableDnmaku();
             });
-            document.getElementById('MRMenuAlwaysDisableDnmaku2Checkbox').addEventListener('click', function () {
+            document.getElementById('S9527MenuAlwaysDisableDnmaku2Checkbox').addEventListener('click', function () {
                 if (GM_getValue('MRMenuAlwaysDisableDnmaku').split('')[2] == 0) {
-                    changeText('MRMenuAlwaysDisableDnmaku', 2, '1');
-                    changeText('MRMenuAlwaysDisableDnmaku', 1, '0');
+                    changeText('S9527MenuAlwaysDisableDnmaku', 2, '1');
+                    changeText('S9527MenuAlwaysDisableDnmaku', 1, '0');
 
-                    document.getElementById('MRMenuAlwaysDisableDnmaku1Checkbox').checked = false;
+                    document.getElementById('S9527MenuAlwaysDisableDnmaku1Checkbox').checked = false;
 
-                    document.getElementById('MRMenuAlwaysDisableDnmaku1Switch').style.pointerEvents = '';
-                    document.getElementById('MRMenuAlwaysDisableDnmaku2Switch').style.pointerEvents = 'none';
+                    document.getElementById('S9527MenuAlwaysDisableDnmaku1Switch').style.pointerEvents = '';
+                    document.getElementById('S9527MenuAlwaysDisableDnmaku2Switch').style.pointerEvents = 'none';
                 }
                 alwaysDisableDnmaku();
             });
@@ -1859,7 +1859,7 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
                         // 移动弹幕栏到播放器下方
                         document.getElementById('playerWrap').appendChild(document.getElementsByClassName('bpx-player-sending-area')[0]);
                         // 弹幕栏属性
-                        document.getElementsByClassName('bpx-player-sending-area')[0].setAttribute('mr_always_display', 'true');
+                        document.getElementsByClassName('bpx-player-sending-area')[0].setAttribute('s9527_always_display', 'true');
                         // 移动窗口到顶部
                         if (GM_getValue('MRMenuMoveWindowToTop') == 1) {
                             moveWindowToTop();
@@ -1923,14 +1923,14 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
                         } else {
                             document.getElementById('bilibili-player').style.cssText += 'width: 100% !important; height: 100vh !important;';
                         }
-                        document.getElementById('bilibili-player-wrap').setAttribute('mr_fullscreen', 'true');
-                        document.getElementsByClassName('main-container')[0].setAttribute('mr_fullscreen', 'true');
-                        document.getElementsByClassName('plp-l')[0].setAttribute('mr_fullscreen', 'true');
-                        document.getElementsByClassName('plp-r')[0].setAttribute('mr_fullscreen', 'true');
+                        document.getElementById('bilibili-player-wrap').setAttribute('s9527_fullscreen', 'true');
+                        document.getElementsByClassName('main-container')[0].setAttribute('s9527_fullscreen', 'true');
+                        document.getElementsByClassName('plp-l')[0].setAttribute('s9527_fullscreen', 'true');
+                        document.getElementsByClassName('plp-r')[0].setAttribute('s9527_fullscreen', 'true');
                         // 移动播放器到上级
                         document.body.insertBefore(document.getElementById('bilibili-player-wrap'), document.getElementById('__next'));
                         // 弹幕栏属性
-                        document.getElementsByClassName('bpx-player-sending-area')[0].setAttribute('mr_always_display', 'true');
+                        document.getElementsByClassName('bpx-player-sending-area')[0].setAttribute('s9527_always_display', 'true');
                         // 隐藏电影主题背景
                         if (document.getElementsByClassName('special-cover')[0]) {
                             document.getElementsByClassName('special-cover')[0].style.cssText += 'display: none';
@@ -1962,7 +1962,7 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
                             console.log('[' + notificationScriptName + '-' + notificationWarning + '] ' + '网页全屏模式 - 未检测到宽屏模式按钮, 检测超时, 停止检测');
                         }
                         // 调整弹幕栏观看人数和弹幕装填信息宽度
-                        document.getElementsByClassName('bpx-player-video-info')[0].setAttribute('mr_fullscreen', 'true');
+                        document.getElementsByClassName('bpx-player-video-info')[0].setAttribute('s9527_fullscreen', 'true');
                         //
                         // 通知
                         console.log('[' + notificationScriptName + '-' + notificationNotification + '] ' + '网页全屏模式 - 已开启网页全屏模式');
@@ -2001,7 +2001,7 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
                         // 移动弹幕栏到播放器下方
                         document.getElementById('playerWrap').appendChild(document.getElementsByClassName('bpx-player-sending-area')[0]);
                         // 弹幕栏属性
-                        document.getElementsByClassName('bpx-player-sending-area')[0].setAttribute('mr_always_display', 'true');
+                        document.getElementsByClassName('bpx-player-sending-area')[0].setAttribute('s9527_always_display', 'true');
                         // 移动窗口到顶部
                         if (GM_getValue('MRMenuMoveWindowToTop') == 1) {
                             moveWindowToTop();
@@ -2085,7 +2085,7 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
                         // 移动弹幕栏到初始位置
                         document.getElementsByClassName('bpx-player-primary-area')[0].appendChild(document.getElementsByClassName('bpx-player-sending-area')[0]);
                         // 弹幕栏属性
-                        document.getElementsByClassName('bpx-player-sending-area')[0].setAttribute('mr_always_display', '');
+                        document.getElementsByClassName('bpx-player-sending-area')[0].setAttribute('s9527_always_display', '');
                         // 移动窗口到顶部
                         if (GM_getValue('MRMenuMoveWindowToTop') == 1) {
                             moveWindowToTop();
@@ -2126,13 +2126,13 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
                         // 其他模式下恢复改变的布局
                         document.getElementById('bilibili-player').style.width = '';
                         document.getElementById('bilibili-player').style.height = '';
-                        document.getElementsByClassName('main-container')[0].setAttribute('mr_fullscreen', '');
-                        document.getElementsByClassName('plp-l')[0].setAttribute('mr_fullscreen', '');
-                        document.getElementsByClassName('plp-r')[0].setAttribute('mr_fullscreen', '');
+                        document.getElementsByClassName('main-container')[0].setAttribute('s9527_fullscreen', '');
+                        document.getElementsByClassName('plp-l')[0].setAttribute('s9527_fullscreen', '');
+                        document.getElementsByClassName('plp-r')[0].setAttribute('s9527_fullscreen', '');
                         // 移动播放器到上级
                         document.getElementsByClassName('plp-l')[0].insertBefore(document.getElementById('player_module'), document.getElementsByClassName('media-wrapper')[0]);
                         // 弹幕栏属性
-                        document.getElementsByClassName('bpx-player-sending-area')[0].setAttribute('mr_always_display', '');
+                        document.getElementsByClassName('bpx-player-sending-area')[0].setAttribute('s9527_always_display', '');
                         // 隐藏电影主题背景
                         if (document.getElementsByClassName('special-cover')[0]) {
                             document.getElementsByClassName('special-cover')[0].style.display = '';
@@ -2189,7 +2189,7 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
                         // 移动弹幕栏到初始位置
                         document.getElementsByClassName('bpx-player-primary-area')[0].appendChild(document.getElementsByClassName('bpx-player-sending-area')[0]);
                         // 弹幕栏属性
-                        document.getElementsByClassName('bpx-player-sending-area')[0].setAttribute('mr_always_display', '');
+                        document.getElementsByClassName('bpx-player-sending-area')[0].setAttribute('s9527_always_display', '');
                         // 移动窗口到顶部
                         if (GM_getValue('MRMenuMoveWindowToTop') == 1) {
                             moveWindowToTop();
@@ -2433,17 +2433,17 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
                 if (document.getElementsByClassName('plp-l')[0]) {
                     if (GM_getValue('MRMenuDownLayoutPadding') == 1) {
                         if (GM_getValue('MRPlayerMode') == 2) {
-                            document.getElementsByClassName('main-container')[0].setAttribute('mr_margin_fix', 'true');
-                            document.getElementsByClassName('player-left-components')[0].setAttribute('mr_margin_fix', 'true');
+                            document.getElementsByClassName('main-container')[0].setAttribute('s9527_margin_fix', 'true');
+                            document.getElementsByClassName('player-left-components')[0].setAttribute('s9527_margin_fix', 'true');
                             console.log('[' + notificationScriptName + '-' + notificationNotification + '] ' + '调整下方左右边距 - 下方左右边距调整完毕');
                         } else {
-                            document.getElementsByClassName('main-container')[0].setAttribute('mr_margin_fix', '');
-                            document.getElementsByClassName('player-left-components')[0].setAttribute('mr_margin_fix', '');
+                            document.getElementsByClassName('main-container')[0].setAttribute('s9527_margin_fix', '');
+                            document.getElementsByClassName('player-left-components')[0].setAttribute('s9527_margin_fix', '');
                             console.log('[' + notificationScriptName + '-' + notificationNotification + '] ' + '调整下方左右边距 - 下方左右边距已恢复');
                         }
                     } else {
-                        document.getElementsByClassName('main-container')[0].setAttribute('mr_margin_fix', '');
-                        document.getElementsByClassName('player-left-components')[0].setAttribute('mr_margin_fix', '');
+                        document.getElementsByClassName('main-container')[0].setAttribute('s9527_margin_fix', '');
+                        document.getElementsByClassName('player-left-components')[0].setAttribute('s9527_margin_fix', '');
                         console.log('[' + notificationScriptName + '-' + notificationNotification + '] ' + '调整下方左右边距 - 下方左右边距已恢复');
                     }
                 } else if (downLayoutPaddingEtime < etime || timeoutSwitch) {
@@ -2554,7 +2554,7 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
                         // 调整播放器底部空间中间宽度
                         document.getElementsByClassName('bpx-player-control-bottom-center')[0].style.cssText += 'width: 50%; height: 34px; line-height: 34px;';
                         // 隐藏白线
-                        document.getElementsByClassName('bpx-player-sending-area')[0].setAttribute('mr_inside_player', 'true');
+                        document.getElementsByClassName('bpx-player-sending-area')[0].setAttribute('s9527_inside_player', 'true');
                         // 弹幕栏整体样式
                         document.getElementsByClassName('bpx-player-sending-bar')[0].style.cssText += 'background: none; height: 34px; line-height: 34px; margin: -6px auto;';
                         // 观看人数和弹幕装填信息
@@ -2573,7 +2573,7 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
                         document.getElementsByClassName('bpx-player-video-btn-dm')[0].style.cssText += 'fill: hsla(0,0%,100%,.9);';
                         // 弹幕发送框文本样式
                         document.getElementsByClassName('bpx-player-dm-input')[0].style.cssText += 'color: hsla(0,0%,100%,.6);';
-                        document.getElementsByClassName('bpx-player-dm-input')[0].setAttribute('mr_inside_player', 'true');
+                        document.getElementsByClassName('bpx-player-dm-input')[0].setAttribute('s9527_inside_player', 'true');
                         // 弹幕礼仪按钮
                         document.getElementsByClassName('bpx-player-dm-hint')[0].children[0].children[0].style.cssText += 'color: hsla(0,0%,100%,.6);';
                         document.getElementsByClassName('bpx-player-dm-hint')[0].children[0].children[1].style.cssText += 'fill: hsla(0,0%,100%,.6);';
@@ -2586,7 +2586,7 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
                         document.getElementsByClassName('bpx-player-control-bottom-center')[0].style.height = '';
                         document.getElementsByClassName('bpx-player-control-bottom-center')[0].style.lineHeight = '';
                         // 隐藏白线
-                        document.getElementsByClassName('bpx-player-sending-area')[0].setAttribute('mr_inside_player', '')
+                        document.getElementsByClassName('bpx-player-sending-area')[0].setAttribute('s9527_inside_player', '')
                         // 弹幕栏整体样式
                         document.getElementsByClassName('bpx-player-sending-bar')[0].style.background = '';
                         document.getElementsByClassName('bpx-player-sending-bar')[0].style.height = '';
@@ -2606,7 +2606,7 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
                         document.getElementsByClassName('bpx-player-video-btn-dm')[0].style.fill = '';
                         // 弹幕发送框文本样式
                         document.getElementsByClassName('bpx-player-dm-input')[0].style.color = '';
-                        document.getElementsByClassName('bpx-player-dm-input')[0].setAttribute('mr_inside_player', '')
+                        document.getElementsByClassName('bpx-player-dm-input')[0].setAttribute('s9527_inside_player', '')
                         // 弹幕礼仪按钮
                         document.getElementsByClassName('bpx-player-dm-hint')[0].children[0].children[0].style.color = '';
                         document.getElementsByClassName('bpx-player-dm-hint')[0].children[0].children[1].style.fill = '';
@@ -2661,12 +2661,12 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
             function displayEplistVideoCheck() {
                 if (document.getElementsByClassName(btn)[0]) {
                     if (GM_getValue('MRMenuDisplayEplist') == 1) {
-                        if (!document.getElementsByClassName(btn)[0].getAttribute('mr_show_eplist') || !document.getElementsByClassName(btn)[0].getAttribute('mr_show_eplist') == 'true') {
-                            document.getElementsByClassName(btn)[0].setAttribute('mr_show_eplist', 'true');
+                        if (!document.getElementsByClassName(btn)[0].getAttribute('s9527_show_eplist') || !document.getElementsByClassName(btn)[0].getAttribute('s9527_show_eplist') == 'true') {
+                            document.getElementsByClassName(btn)[0].setAttribute('s9527_show_eplist', 'true');
                             console.log('[' + notificationScriptName + '-' + notificationNotification + '] ' + '播放器内显示选集按钮 - 已显示选集按钮');
                         }
-                    } else if (document.getElementsByClassName(btn)[0].getAttribute('mr_show_eplist') == 'true') {
-                        document.getElementsByClassName(btn)[0].setAttribute('mr_show_eplist', '');
+                    } else if (document.getElementsByClassName(btn)[0].getAttribute('s9527_show_eplist') == 'true') {
+                        document.getElementsByClassName(btn)[0].setAttribute('s9527_show_eplist', '');
                         console.log('[' + notificationScriptName + '-' + notificationNotification + '] ' + '播放器内显示选集按钮 - 已隐藏选集按钮');
                     }
                 }
@@ -2675,12 +2675,12 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
             function displayEplistMovieCheck() {
                 if (document.getElementsByClassName(btn)[0]) {
                     if (GM_getValue('MRMenuDisplayEplist') == 1) {
-                        if (!document.getElementsByClassName(btn)[0].getAttribute('mr_always_display') || !document.getElementsByClassName(btn)[0].getAttribute('mr_always_display') == 'true') {
-                            document.getElementsByClassName(btn)[0].setAttribute('mr_always_display', 'true');
+                        if (!document.getElementsByClassName(btn)[0].getAttribute('s9527_always_display') || !document.getElementsByClassName(btn)[0].getAttribute('s9527_always_display') == 'true') {
+                            document.getElementsByClassName(btn)[0].setAttribute('s9527_always_display', 'true');
                             console.log('[' + notificationScriptName + '-' + notificationNotification + '] ' + '播放器内显示选集按钮 - 已显示选集按钮');
                         }
-                    } else if (document.getElementsByClassName(btn)[0].getAttribute('mr_always_display') == 'true') {
-                        document.getElementsByClassName(btn)[0].setAttribute('mr_always_display', '');
+                    } else if (document.getElementsByClassName(btn)[0].getAttribute('s9527_always_display') == 'true') {
+                        document.getElementsByClassName(btn)[0].setAttribute('s9527_always_display', '');
                         console.log('[' + notificationScriptName + '-' + notificationNotification + '] ' + '播放器内显示选集按钮 - 已隐藏选集按钮');
                     }
                 } else if (displayEplistEtime < etime || timeoutSwitch) {
@@ -2764,34 +2764,34 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
                         if (GM_getValue('MRPlayerMode') != 2) {
                             document.getElementsByClassName('left-container')[0].insertBefore(document.getElementById('viewbox_report'), document.getElementById('arc_toolbar_report'));
                         } else {
-                            document.getElementsByClassName('right-container')[0].setAttribute('mr_layout', 'true');
+                            document.getElementsByClassName('right-container')[0].setAttribute('s9527_layout', 'true');
                         }
                         // 标题样式
-                        document.getElementById('viewbox_report').setAttribute('mr_layout', 'true');
+                        document.getElementById('viewbox_report').setAttribute('s9527_layout', 'true');
                         if (!document.getElementsByClassName('members-info-container')[0]) {
                             // 移动头像到点赞栏上方
                             document.getElementsByClassName('left-container')[0].insertBefore(document.getElementsByClassName('up-panel-container')[0], document.getElementById('arc_toolbar_report'));
                             // 头像栏样式
-                            document.getElementsByClassName('up-panel-container')[0].setAttribute('mr_layout', 'true');
-                            document.getElementsByClassName('up-info-container')[0].setAttribute('mr_layout', 'true');
+                            document.getElementsByClassName('up-panel-container')[0].setAttribute('s9527_layout', 'true');
+                            document.getElementsByClassName('up-info-container')[0].setAttribute('s9527_layout', 'true');
                             // 播放器样式
                             if (GM_getValue('MRPlayerMode') != 2) {
-                                document.getElementById('playerWrap').setAttribute('mr_layout', 'true');
+                                document.getElementById('playerWrap').setAttribute('s9527_layout', 'true');
                             } else {
-                                document.getElementById('playerWrap').setAttribute('mr_layout', '');
+                                document.getElementById('playerWrap').setAttribute('s9527_layout', '');
                             }
                             // 充电面板样式
-                            document.getElementsByClassName('upinfo-btn-panel')[0].setAttribute('mr_layout', 'true');
+                            document.getElementsByClassName('upinfo-btn-panel')[0].setAttribute('s9527_layout', 'true');
                             // 充电按钮样式
                             if (document.getElementsByClassName('old-charge-btn')[0]) {
-                                document.getElementsByClassName('old-charge-btn')[0].setAttribute('mr_layout', 'true');
+                                document.getElementsByClassName('old-charge-btn')[0].setAttribute('s9527_layout', 'true');
                             } else if (document.getElementsByClassName('new-charge-btn')[0]) {
-                                document.getElementsByClassName('new-charge-btn')[0].setAttribute('mr_layout', 'true');
+                                document.getElementsByClassName('new-charge-btn')[0].setAttribute('s9527_layout', 'true');
                             }
                             // 关注按钮样式
-                            document.getElementsByClassName('follow-btn')[0].setAttribute('mr_layout', 'true');
+                            document.getElementsByClassName('follow-btn')[0].setAttribute('s9527_layout', 'true');
                             // 名称样式
-                            document.getElementsByClassName('up-name')[0].setAttribute('mr_layout', 'true');
+                            document.getElementsByClassName('up-name')[0].setAttribute('s9527_layout', 'true');
                             // 简介样式
                             if (!document.getElementsByClassName('up-detail')[0].children[1]) {
                                 document.getElementsByClassName('upinfo-btn-panel')[0].style.cssText += 'margin: -30px 10px 0px 0px;';
@@ -2800,11 +2800,11 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
                             }
                             // 当头像有装饰时
                             if (document.getElementsByClassName('has-pendant')[0]) {
-                                document.getElementsByClassName('has-pendant')[0].setAttribute('mr_layout', 'true');
+                                document.getElementsByClassName('has-pendant')[0].setAttribute('s9527_layout', 'true');
                             }
                         } else {
                             // 联合投稿
-                            document.getElementsByClassName('members-info-container')[0].setAttribute('mr_layout', 'true');
+                            document.getElementsByClassName('members-info-container')[0].setAttribute('s9527_layout', 'true');
                             // 移动联合投稿到点赞栏上方
                             document.getElementsByClassName('left-container')[0].insertBefore(document.getElementsByClassName('members-info-container')[0], document.getElementById('arc_toolbar_report'));
                         }
@@ -2819,31 +2819,31 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
                         if (GM_getValue('MRPlayerMode') != 2) {
                             document.getElementsByClassName('left-container')[0].insertBefore(document.getElementById('viewbox_report'), document.getElementById('playerWrap'));
                         } else {
-                            document.getElementsByClassName('right-container')[0].setAttribute('mr_layout', '');
+                            document.getElementsByClassName('right-container')[0].setAttribute('s9527_layout', '');
                         }
                         // 标题样式
-                        document.getElementById('viewbox_report').setAttribute('mr_layout', '');
+                        document.getElementById('viewbox_report').setAttribute('s9527_layout', '');
                         if (!document.getElementsByClassName('members-info-v1')[0]) {
                             // 移动头像到原位
                             document.getElementsByClassName('right-container-inner')[0].appendChild(document.getElementsByClassName('up-panel-container')[0]);
                             document.getElementsByClassName('right-container-inner')[0].insertBefore(document.getElementsByClassName('up-panel-container')[0], document.getElementById('danmukuBox'));
                             // 头像栏样式
-                            document.getElementsByClassName('up-panel-container')[0].setAttribute('mr_layout', '');
-                            document.getElementsByClassName('up-info-container')[0].setAttribute('mr_layout', '');
+                            document.getElementsByClassName('up-panel-container')[0].setAttribute('s9527_layout', '');
+                            document.getElementsByClassName('up-info-container')[0].setAttribute('s9527_layout', '');
                             // 播放器样式
-                            document.getElementById('playerWrap').setAttribute('mr_layout', '');
+                            document.getElementById('playerWrap').setAttribute('s9527_layout', '');
                             // 充电面板样式
-                            document.getElementsByClassName('upinfo-btn-panel')[0].setAttribute('mr_layout', '');
+                            document.getElementsByClassName('upinfo-btn-panel')[0].setAttribute('s9527_layout', '');
                             // 充电按钮样式
                             if (document.getElementsByClassName('old-charge-btn')[0]) {
-                                document.getElementsByClassName('old-charge-btn')[0].setAttribute('mr_layout', '');
+                                document.getElementsByClassName('old-charge-btn')[0].setAttribute('s9527_layout', '');
                             } else if (document.getElementsByClassName('new-charge-btn')[0]) {
-                                document.getElementsByClassName('new-charge-btn')[0].setAttribute('mr_layout', '');
+                                document.getElementsByClassName('new-charge-btn')[0].setAttribute('s9527_layout', '');
                             }
                             // 关注按钮样式
-                            document.getElementsByClassName('follow-btn')[0].setAttribute('mr_layout', '');
+                            document.getElementsByClassName('follow-btn')[0].setAttribute('s9527_layout', '');
                             // 名称样式
-                            document.getElementsByClassName('up-name')[0].setAttribute('mr_layout', '');
+                            document.getElementsByClassName('up-name')[0].setAttribute('s9527_layout', '');
                             // 简介样式
                             if (!document.getElementsByClassName('up-detail')[0].children[1]) {
                                 document.getElementsByClassName('upinfo-btn-panel')[0].style.margin = '';
@@ -2852,11 +2852,11 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
                             }
                             // 当头像有装饰时
                             if (document.getElementsByClassName('has-pendant')[0]) {
-                                document.getElementsByClassName('has-pendant')[0].setAttribute('mr_layout', '');
+                                document.getElementsByClassName('has-pendant')[0].setAttribute('s9527_layout', '');
                             }
                         } else {
                             // 联合投稿
-                            document.getElementsByClassName('members-info-container')[0].setAttribute('mr_layout', '');
+                            document.getElementsByClassName('members-info-container')[0].setAttribute('s9527_layout', '');
                             // 移动联合投稿到原位
                             document.getElementsByClassName('right-container-inner')[0].children[0].appendChild(document.getElementsByClassName('members-info-container')[0]);
                         }
@@ -2876,35 +2876,35 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
                         if (GM_getValue('MRPlayerMode') != 2) {
                             document.getElementsByClassName('playlist-container--left')[0].insertBefore(document.getElementsByClassName('video-info-container')[0], document.getElementById('playlistToolbar'));
                         } else {
-                            document.getElementsByClassName('playlist-container--right')[0].setAttribute('mr_layout', 'true');
+                            document.getElementsByClassName('playlist-container--right')[0].setAttribute('s9527_layout', 'true');
                         }
                         // 标题样式
-                        document.getElementsByClassName('video-info-container')[0].setAttribute('mr_layout', 'true');
+                        document.getElementsByClassName('video-info-container')[0].setAttribute('s9527_layout', 'true');
                         if (!document.getElementsByClassName('members-info-container')[0]) {
                             // 移动头像到点赞栏上方
                             document.getElementsByClassName('playlist-container--left')[0].appendChild(document.getElementsByClassName('up-panel-container')[0]);
                             document.getElementsByClassName('playlist-container--left')[0].insertBefore(document.getElementsByClassName('up-panel-container')[0], document.getElementById('playlistToolbar'));
                             // 头像栏样式
-                            document.getElementsByClassName('up-panel-container')[0].setAttribute('mr_layout', 'true');
-                            document.getElementsByClassName('up-info-container')[0].setAttribute('mr_layout', 'true');
+                            document.getElementsByClassName('up-panel-container')[0].setAttribute('s9527_layout', 'true');
+                            document.getElementsByClassName('up-info-container')[0].setAttribute('s9527_layout', 'true');
                             // 播放器样式
                             if (GM_getValue('MRPlayerMode') != 2) {
-                                document.getElementById('playerWrap').setAttribute('mr_layout', 'true');
+                                document.getElementById('playerWrap').setAttribute('s9527_layout', 'true');
                             } else {
-                                document.getElementById('playerWrap').setAttribute('mr_layout', '');
+                                document.getElementById('playerWrap').setAttribute('s9527_layout', '');
                             }
                             // 充电面板样式
-                            document.getElementsByClassName('upinfo-btn-panel')[0].setAttribute('mr_layout', 'true');
+                            document.getElementsByClassName('upinfo-btn-panel')[0].setAttribute('s9527_layout', 'true');
                             // 充电按钮样式
                             if (document.getElementsByClassName('old-charge-btn')[0]) {
-                                document.getElementsByClassName('old-charge-btn')[0].setAttribute('mr_layout', 'true');
+                                document.getElementsByClassName('old-charge-btn')[0].setAttribute('s9527_layout', 'true');
                             } else if (document.getElementsByClassName('new-charge-btn')[0]) {
-                                document.getElementsByClassName('new-charge-btn')[0].setAttribute('mr_layout', 'true');
+                                document.getElementsByClassName('new-charge-btn')[0].setAttribute('s9527_layout', 'true');
                             }
                             // 关注按钮样式
-                            document.getElementsByClassName('follow-btn')[0].setAttribute('mr_layout', 'true');
+                            document.getElementsByClassName('follow-btn')[0].setAttribute('s9527_layout', 'true');
                             // 名称样式
-                            document.getElementsByClassName('up-detail-top')[0].setAttribute('mr_layout', 'true');
+                            document.getElementsByClassName('up-detail-top')[0].setAttribute('s9527_layout', 'true');
                             // 简介样式
                             if (document.getElementsByClassName('up-info--right')[0].children[0].children[0].children[1] && document.getElementsByClassName('up-info--right')[0].children[0].children[0].children[1].className.match('up-description')) {
                                 document.getElementsByClassName('up-info--right')[0].children[0].children[0].children[1].style.cssText += 'width: calc(100% - 300px);';
@@ -2913,11 +2913,11 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
                             }
                             // 当头像有装饰时
                             if (document.getElementsByClassName('has-pendant')[0]) {
-                                document.getElementsByClassName('has-pendant')[0].setAttribute('mr_layout', 'true');
+                                document.getElementsByClassName('has-pendant')[0].setAttribute('s9527_layout', 'true');
                             }
                         } else {
                             // 联合投稿
-                            document.getElementsByClassName('members-info-container')[0].setAttribute('mr_layout', 'true');
+                            document.getElementsByClassName('members-info-container')[0].setAttribute('s9527_layout', 'true');
                             // 移动联合投稿到点赞栏上方
                             document.getElementsByClassName('playlist-container--left')[0].appendChild(document.getElementsByClassName('up-panel-container')[0]);
                             document.getElementsByClassName('playlist-container--left')[0].insertBefore(document.getElementsByClassName('up-panel-container')[0], document.getElementById('playlistToolbar'));
@@ -2933,31 +2933,31 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
                         if (GM_getValue('MRPlayerMode') != 2) {
                             document.getElementsByClassName('playlist-container--left')[0].insertBefore(document.getElementsByClassName('video-info-container')[0], document.getElementById('playerWrap'));
                         } else {
-                            document.getElementsByClassName('playlist-container--right')[0].setAttribute('mr_layout', '');
+                            document.getElementsByClassName('playlist-container--right')[0].setAttribute('s9527_layout', '');
                         }
                         // 标题样式
-                        document.getElementsByClassName('video-info-container')[0].setAttribute('mr_layout', '');
+                        document.getElementsByClassName('video-info-container')[0].setAttribute('s9527_layout', '');
                         if (!document.getElementsByClassName('members-info-container')[0]) {
                             // 移动头像到原位
                             document.getElementsByClassName('playlist-container--right')[0].appendChild(document.getElementsByClassName('up-panel-container')[0]);
                             document.getElementsByClassName('playlist-container--right')[0].insertBefore(document.getElementsByClassName('up-panel-container')[0], document.getElementById('danmukuBox'));
                             // 头像栏样式
-                            document.getElementsByClassName('up-panel-container')[0].setAttribute('mr_layout', '');
-                            document.getElementsByClassName('up-info-container')[0].setAttribute('mr_layout', '');
+                            document.getElementsByClassName('up-panel-container')[0].setAttribute('s9527_layout', '');
+                            document.getElementsByClassName('up-info-container')[0].setAttribute('s9527_layout', '');
                             // 播放器样式
-                            document.getElementById('playerWrap').setAttribute('mr_layout', '');
+                            document.getElementById('playerWrap').setAttribute('s9527_layout', '');
                             // 充电面板样式
-                            document.getElementsByClassName('upinfo-btn-panel')[0].setAttribute('mr_layout', '');
+                            document.getElementsByClassName('upinfo-btn-panel')[0].setAttribute('s9527_layout', '');
                             // 充电按钮样式
                             if (document.getElementsByClassName('old-charge-btn')[0]) {
-                                document.getElementsByClassName('old-charge-btn')[0].setAttribute('mr_layout', '');
+                                document.getElementsByClassName('old-charge-btn')[0].setAttribute('s9527_layout', '');
                             } else if (document.getElementsByClassName('new-charge-btn')[0]) {
-                                document.getElementsByClassName('new-charge-btn')[0].setAttribute('mr_layout', '');
+                                document.getElementsByClassName('new-charge-btn')[0].setAttribute('s9527_layout', '');
                             }
                             // 关注按钮样式
-                            document.getElementsByClassName('follow-btn')[0].setAttribute('mr_layout', '');
+                            document.getElementsByClassName('follow-btn')[0].setAttribute('s9527_layout', '');
                             // 名称样式
-                            document.getElementsByClassName('up-detail-top')[0].setAttribute('mr_layout', '');
+                            document.getElementsByClassName('up-detail-top')[0].setAttribute('s9527_layout', '');
                             // 简介样式
                             if (document.getElementsByClassName('up-info--right')[0].children[0].children[0].children[1] && document.getElementsByClassName('up-info--right')[0].children[0].children[0].children[1].className.match('up-description')) {
                                 document.getElementsByClassName('up-info--right')[0].children[0].children[0].children[1].style.width = '';
@@ -2966,11 +2966,11 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
                             }
                             // 当头像有装饰时
                             if (document.getElementsByClassName('has-pendant')[0]) {
-                                document.getElementsByClassName('has-pendant')[0].setAttribute('mr_layout', '');
+                                document.getElementsByClassName('has-pendant')[0].setAttribute('s9527_layout', '');
                             }
                         } else {
                             // 联合投稿
-                            document.getElementsByClassName('members-info-container')[0].setAttribute('mr_layout', '');
+                            document.getElementsByClassName('members-info-container')[0].setAttribute('s9527_layout', '');
                             // 移动联合投稿到原位
                             document.getElementsByClassName('playlist-container--right')[0].appendChild(document.getElementsByClassName('up-panel-container')[0]);
                             document.getElementsByClassName('playlist-container--right')[0].insertBefore(document.getElementsByClassName('up-panel-container')[0], document.getElementById('danmukuBox'));
@@ -2987,7 +2987,7 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
 
         var betterToolTipVolumePopupStyle = '';
         betterToolTipVolumePopupStyle = document.createElement('style');
-        MRMenuElement.appendChild(betterToolTipVolumePopupStyle);
+        S9527MenuElement.appendChild(betterToolTipVolumePopupStyle);
         // 优化工具提示弹窗
         function betterToolTip() {
             let toolTipPopup = '';
@@ -3033,10 +3033,10 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
             function hideProgressAreaVideoCheck() {
                 if (document.getElementsByClassName('bpx-player-shadow-progress-area')[0]) {
                     if (GM_getValue('MRMenuHideProgressArea') == 1) {
-                        document.getElementsByClassName('bpx-player-shadow-progress-area')[0].setAttribute('mr_hide_progress_area', 'true');
+                        document.getElementsByClassName('bpx-player-shadow-progress-area')[0].setAttribute('s9527_hide_progress_area', 'true');
                         console.log('[' + notificationScriptName + '-' + notificationNotification + '] ' + '隐藏视频底部蓝条 - 已隐藏视频底部蓝条');
                     } else {
-                        document.getElementsByClassName('bpx-player-shadow-progress-area')[0].setAttribute('mr_hide_progress_area', '');
+                        document.getElementsByClassName('bpx-player-shadow-progress-area')[0].setAttribute('s9527_hide_progress_area', '');
                         console.log('[' + notificationScriptName + '-' + notificationNotification + '] ' + '隐藏视频底部蓝条 - 已取消隐藏视频底部蓝条');
                     }
                 } else {
@@ -3071,17 +3071,17 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
                             return;
                         }
                         if (hidden) {
-                            if (!element.hasAttribute('mr_hide_navigation_bar_tag')) {
-                                element.setAttribute('mr_hide_navigation_bar_tag', element.style.display || '');
+                            if (!element.hasAttribute('s9527_hide_navigation_bar_tag')) {
+                                element.setAttribute('s9527_hide_navigation_bar_tag', element.style.display || '');
                             }
                             element.style.setProperty('display', 'none', 'important');
-                        } else if (element.hasAttribute('mr_hide_navigation_bar_tag')) {
-                            const originalDisplay = element.getAttribute('mr_hide_navigation_bar_tag');
+                        } else if (element.hasAttribute('s9527_hide_navigation_bar_tag')) {
+                            const originalDisplay = element.getAttribute('s9527_hide_navigation_bar_tag');
                             element.style.removeProperty('display');
                             if (originalDisplay) {
                                 element.style.setProperty('display', originalDisplay);
                             }
-                            element.removeAttribute('mr_hide_navigation_bar_tag');
+                            element.removeAttribute('s9527_hide_navigation_bar_tag');
                         }
                     };
                     const getNavigationItemIndex = function (item) {
@@ -3437,7 +3437,7 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
                             for (let i1 = 0; i1 < commentsDetailsElements.length; i1++) {
                                 if (commentsElements[i].shadowRoot.getElementById('replies') && commentsElements[i].shadowRoot.getElementById('replies').children[0].shadowRoot.getElementById('view-more')) {
                                     fixDarkreaderElementParent = commentsElements[i].shadowRoot.getElementById('replies').children[0].shadowRoot.getElementById('view-more').children[1].shadowRoot.querySelector('button');
-                                    if (fixDarkreaderElementParent.getAttribute('mr_fixDarkreader') != 'true') {
+                                    if (fixDarkreaderElementParent.getAttribute('s9527_fixDarkreader') != 'true') {
                                         fixDarkreaderElement = document.createElement('style');
                                         fixDarkreaderElement.innerHTML = '\r\n\
                                     /* DarkReader 点击查看 按钮颜色修复 */\r\n\
@@ -3446,7 +3446,7 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
                                     }\r\n\
                                     ';
                                         fixDarkreaderElementParent.appendChild(fixDarkreaderElement);
-                                        fixDarkreaderElementParent.setAttribute('mr_fixDarkreader', 'true');
+                                        fixDarkreaderElementParent.setAttribute('s9527_fixDarkreader', 'true');
                                     }
                                 }
                                 if (commentsDetailsElements[i1].tagName == 'A' && !commentsDetailsElements[i1].textContent.match('@') && !commentsDetailsElements[i1].textContent.match('http') && commentsDetailsElements[i1].getAttribute('data-type') != 'seek' && commentsDetailsElements[i1].getAttribute('href').match('search.bilibili.com') && commentsDetailsElements[i1].style.pointerEvents != 'none') {
@@ -3883,12 +3883,12 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
         // 禁用按钮改变样式
         function disableBtn(elementSwitch) {
             elementSwitch.style.pointerEvents = 'none';
-            elementSwitch.children[1].setAttribute('mr_disable', 'true');
+            elementSwitch.children[1].setAttribute('s9527_disable', 'true');
         }
         // 激活按钮改变样式
         function enableBtn(elementSwitch) {
             elementSwitch.style.pointerEvents = '';
-            elementSwitch.children[1].setAttribute('mr_disable', '');
+            elementSwitch.children[1].setAttribute('s9527_disable', '');
         }
 
         // 判断页面加载完毕
@@ -3915,8 +3915,8 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
             }
             // 恢复菜单点击
             function resetMenuClick() {
-                for (let i = 0; i < document.getElementsByClassName('MRMenuOptionParent').length; i++) {
-                    document.getElementsByClassName('MRMenuOptionParent')[i].setAttribute('mr_is_loaded', 'true');
+                for (let i = 0; i < document.getElementsByClassName('S9527MenuOptionParent').length; i++) {
+                    document.getElementsByClassName('S9527MenuOptionParent')[i].setAttribute('s9527_is_loaded', 'true');
                 }
             }
             // 视频/影视
@@ -3927,8 +3927,8 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
                     // 恢复菜单点击
                     resetMenuClick();
                     // 菜单文本
-                    if (document.getElementById('MRMenuStatus')) {
-                        document.getElementById('MRMenuStatus').textContent = '';
+                    if (document.getElementById('S9527MenuStatus')) {
+                        document.getElementById('S9527MenuStatus').textContent = '';
                     }
                     if (webStatus == 0 || webStatus == 1) {
                         // 默认模式, 播放器加载完毕后移动窗口到顶部
@@ -3950,8 +3950,8 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
                     // 恢复菜单点击
                     resetMenuClick();
                     // 菜单文本
-                    if (document.getElementById('MRMenuStatus')) {
-                        document.getElementById('MRMenuStatus').textContent = '';
+                    if (document.getElementById('S9527MenuStatus')) {
+                        document.getElementById('S9527MenuStatus').textContent = '';
                     }
                     if (webStatus == 0 || webStatus == 1) {
                         // 默认模式, 播放器加载完毕后移动窗口到顶部
@@ -3973,7 +3973,7 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
                     // 恢复菜单点击
                     resetMenuClick();
                     // 菜单文本
-                    document.getElementById('MRMenuStatus').textContent = '';
+                    document.getElementById('S9527MenuStatus').textContent = '';
                     // 默认模式, 播放器加载完毕后移动窗口到顶部
                     if (GM_getValue('MRPlayerMode') == 0 && GM_getValue('MRMenuMoveWindowToTop') == 1) {
                         moveWindowToTop();
@@ -3991,7 +3991,7 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
                     // 恢复菜单点击
                     resetMenuClick();
                     // 菜单文本
-                    document.getElementById('MRMenuStatus').textContent = '';
+                    document.getElementById('S9527MenuStatus').textContent = '';
                 } else if (loadReadyEtime < etime || timeoutSwitch) {
                     loadReadyEtime += 200;
                     setTimeout(loadReadySearchCheck, 200);
@@ -4005,7 +4005,7 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
                     // 恢复菜单点击
                     resetMenuClick();
                     // 菜单文本
-                    document.getElementById('MRMenuStatus').textContent = '';
+                    document.getElementById('S9527MenuStatus').textContent = '';
                 } else if (loadReadyEtime < etime || timeoutSwitch) {
                     loadReadyEtime += 200;
                     setTimeout(loadReadyAccountCheck, 200);
@@ -4019,7 +4019,7 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
                     // 恢复菜单点击
                     resetMenuClick();
                     // 菜单文本
-                    document.getElementById('MRMenuStatus').textContent = '';
+                    document.getElementById('S9527MenuStatus').textContent = '';
                 } else if (loadReadyEtime < etime || timeoutSwitch) {
                     loadReadyEtime += 200;
                     setTimeout(loadReadyWatchLaterCheck, 200);
