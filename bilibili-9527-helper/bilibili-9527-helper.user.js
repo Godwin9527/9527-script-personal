@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         B站9527助手 - 自动宽屏|自定义布局|智能连播|打造属于自己的B站
 // @namespace    https://github.com/Godwin9527
-// @version      1.0.2
+// @version      1.0.3
 // @description  9527自用: 自动宽屏模式|自定义布局|智能连播...更多功能等你体验, 打造属于自己的B站~
 // @author       Godwin9527
 // @run-at       document-start
@@ -68,6 +68,7 @@ var moveTitleAndUpinfoEtime = 0;
 var betterToolTipEtime = 0;
 // 隐藏导航栏标签
 var hideNavigationBarTagEtime = 0;
+var hideNavigationBarTagObserver = null;
 
 // 实用功能与工具
 // 智能连播 (多集/分P连播, 单集不连播)
@@ -3059,40 +3060,75 @@ if (webStatus != webStatusUnknowPage && webStatus != webStatusNotShow) {
             // 视频
             function hideNavigationBarTagVideoCheck() {
                 if (document.getElementsByClassName('left-entry')[0] && loadReady) {
-                    for (let i = 0; i < GM_getValue('MRMenuHideNavigationBarTag').split('').length; i++) {
-                        if (GM_getValue('MRMenuHideNavigationBarTag').split('')[i] == 1) {
-                            if (i == 0) {
-                                document.getElementsByClassName('left-entry')[0].children[0].children[0].children[0].style.cssText += 'display: none';
-                            } else if (i == 1) {
-                                document.getElementsByClassName('left-entry')[0].children[0].children[0].children[1].style.cssText += 'display: none';
-                            } else if (i == 8) {
-                                for (let i2 = 0; i2 < document.getElementsByClassName('left-entry')[0].children.length; i2++) {
-                                    if (document.getElementsByClassName('left-entry')[0].children[i2].className.match('left-loc-entry')) {
-                                        document.getElementsByClassName('left-entry')[0].children[i2].style.cssText += 'display: none';
-                                    }
-                                }
-                            } else if (i == 9) {
-                                document.getElementsByClassName('left-entry')[0].children[document.getElementsByClassName('left-entry')[0].children.length - 1].style.cssText += 'display: none';
-                            } else {
-                                document.getElementsByClassName('left-entry')[0].children[i - 1].style.cssText += 'display: none';
-                            }
-                        } else {
-                            if (i == 0) {
-                                document.getElementsByClassName('left-entry')[0].children[0].children[0].children[0].style.display = '';
-                            } else if (i == 1) {
-                                document.getElementsByClassName('left-entry')[0].children[0].children[0].children[1].style.display = '';
-                            } else if (i == 8) {
-                                for (let i2 = 0; i2 < document.getElementsByClassName('left-entry')[0].children.length; i2++) {
-                                    if (document.getElementsByClassName('left-entry')[0].children[i2].className.match('left-loc-entry')) {
-                                        document.getElementsByClassName('left-entry')[0].children[i2].style.display = '';
-                                    }
-                                }
-                            } else if (i == 9) {
-                                document.getElementsByClassName('left-entry')[0].children[document.getElementsByClassName('left-entry')[0].children.length - 1].style.display = '';
-                            } else {
-                                document.getElementsByClassName('left-entry')[0].children[i - 1].style.display = '';
-                            }
+                    const leftEntry = document.getElementsByClassName('left-entry')[0];
+                    const leftEntryMain = leftEntry.getElementsByClassName('left-entry-main')[0] || leftEntry;
+                    const navigationItems = Array.from(leftEntryMain.children).filter(function (item) {
+                        return item.nodeType == 1 && (item.className.match('left-entry__item') || item.querySelector('a[href]'));
+                    });
+                    const hiddenConfig = GM_getValue('MRMenuHideNavigationBarTag').split('');
+                    const setTagElementHidden = function (element, hidden) {
+                        if (!element) {
+                            return;
                         }
+                        if (hidden) {
+                            if (!element.hasAttribute('mr_hide_navigation_bar_tag')) {
+                                element.setAttribute('mr_hide_navigation_bar_tag', element.style.display || '');
+                            }
+                            element.style.setProperty('display', 'none', 'important');
+                        } else if (element.hasAttribute('mr_hide_navigation_bar_tag')) {
+                            const originalDisplay = element.getAttribute('mr_hide_navigation_bar_tag');
+                            element.style.removeProperty('display');
+                            if (originalDisplay) {
+                                element.style.setProperty('display', originalDisplay);
+                            }
+                            element.removeAttribute('mr_hide_navigation_bar_tag');
+                        }
+                    };
+                    const getNavigationItemIndex = function (item) {
+                        const itemText = item.textContent.replace(/\s+/g, '');
+                        const itemHref = item.querySelector('a[href]') ? item.querySelector('a[href]').getAttribute('href') || '' : '';
+                        if (itemText.match('首页') || itemHref.match(/^\/\/(www\.)?bilibili\.com\/?$/)) {
+                            return 1;
+                        } else if (itemText.match('番剧')) {
+                            return 2;
+                        } else if (itemText.match('直播')) {
+                            return 3;
+                        } else if (itemText.match('游戏')) {
+                            return 4;
+                        } else if (itemText.match('会员购')) {
+                            return 5;
+                        } else if (itemText.match('漫画')) {
+                            return 6;
+                        } else if (itemText.match('赛事')) {
+                            return 7;
+                        } else if (itemText.match('下载客户端') || itemHref.match('app\.bilibili\.com')) {
+                            return 9;
+                        }
+                        // 未匹配到的额外入口按“活动广告”处理
+                        return 8;
+                    };
+                    const homeItem = navigationItems.find(function (item) {
+                        return getNavigationItemIndex(item) == 1;
+                    });
+                    const homeIcon = homeItem ? homeItem.querySelector('.trigger-icon') : leftEntry.querySelector('.trigger-icon');
+                    setTagElementHidden(homeIcon, hiddenConfig[0] == '1');
+                    navigationItems.forEach(function (item) {
+                        const itemIndex = getNavigationItemIndex(item);
+                        if (itemIndex == 1) {
+                            setTagElementHidden(item.querySelector('.trigger-text'), hiddenConfig[1] == '1');
+                        } else {
+                            setTagElementHidden(item, hiddenConfig[itemIndex] == '1');
+                        }
+                    });
+                    if (!hideNavigationBarTagObserver && window.MutationObserver) {
+                        hideNavigationBarTagObserver = new MutationObserver(function () {
+                            hideNavigationBarTagEtime = 0;
+                            hideNavigationBarTagVideoCheck();
+                        });
+                        hideNavigationBarTagObserver.observe(leftEntry, {
+                            childList: true,
+                            subtree: true
+                        });
                     }
                     // 通知
                     console.log('[' + notificationScriptName + '-' + notificationNotification + '] ' + '隐藏导航栏标签 - 已调整导航栏标签');
