@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         9527YouTube滚动小窗
 // @namespace    https://github.com/Godwin9527
-// @version      1.1.0
+// @version      1.1.1
 // @description  YouTube 页面向下滚动后自动将播放器固定为可拖动、可缩放的悬浮小窗，支持可移动开关，并记忆位置和尺寸
 // @author       Godwin9527
 // @run-at       document-start
@@ -361,6 +361,41 @@
                 border-radius: 8px !important;
                 background: #000 !important;
                 box-shadow: 0 10px 32px rgba(0, 0, 0, 0.38) !important;
+            }
+
+            #player-container.${ACTIVE_CLASS} #movie_player,
+            #player-full-bleed-container.${ACTIVE_CLASS} #movie_player {
+                width: 100% !important;
+                height: 100% !important;
+                min-width: 0 !important;
+                min-height: 0 !important;
+                max-width: none !important;
+                max-height: none !important;
+            }
+
+            #player-container.${ACTIVE_CLASS} .html5-video-container,
+            #player-full-bleed-container.${ACTIVE_CLASS} .html5-video-container {
+                position: absolute !important;
+                inset: 0 !important;
+                width: 100% !important;
+                height: 100% !important;
+                min-width: 0 !important;
+                min-height: 0 !important;
+            }
+
+            #player-container.${ACTIVE_CLASS} video.html5-main-video,
+            #player-full-bleed-container.${ACTIVE_CLASS} video.html5-main-video {
+                position: absolute !important;
+                top: 0 !important;
+                left: 0 !important;
+                width: 100% !important;
+                height: 100% !important;
+                min-width: 0 !important;
+                min-height: 0 !important;
+                max-width: none !important;
+                max-height: none !important;
+                object-fit: contain !important;
+                object-position: center center !important;
             }
 
             .${CONTROLS_CLASS} {
