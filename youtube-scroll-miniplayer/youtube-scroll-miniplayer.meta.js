@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         9527YouTube滚动小窗
 // @namespace    https://github.com/Godwin9527
-// @version      1.0.0
-// @description  YouTube 页面向下滚动后自动将播放器固定为可拖动、可缩放的悬浮小窗，并记忆位置和尺寸
+// @version      1.1.0
+// @description  YouTube 页面向下滚动后自动将播放器固定为可拖动、可缩放的悬浮小窗，支持可移动开关，并记忆位置和尺寸
 // @author       Godwin9527
 // @run-at       document-start
 // @match        *://www.youtube.com/*

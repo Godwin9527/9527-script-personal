@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         9527YouTube滚动小窗
 // @namespace    https://github.com/Godwin9527
-// @version      1.0.0
-// @description  YouTube 页面向下滚动后自动将播放器固定为可拖动、可缩放的悬浮小窗，并记忆位置和尺寸
+// @version      1.1.0
+// @description  YouTube 页面向下滚动后自动将播放器固定为可拖动、可缩放的悬浮小窗，支持可移动开关，并记忆位置和尺寸
 // @author       Godwin9527
 // @run-at       document-start
 // @match        *://www.youtube.com/*
@@ -27,6 +27,10 @@
         defaultWidth: 480,
         defaultMargin: 24,
 
+        // 首次使用时开关按钮与小窗之间的间距
+        toggleButtonGap: 8,
+        toggleButtonDragThreshold: 5,
+
         // 手动缩放时允许的最小尺寸
         minWidth: 240,
         minHeight: 135,
@@ -44,10 +48,17 @@
     };
 
     const STORAGE_KEY = 'yt-scroll-miniplayer-geometry';
+    const ENABLED_STORAGE_KEY = 'yt-scroll-miniplayer-enabled';
+    const TOGGLE_BUTTON_STORAGE_KEY = 'yt-scroll-miniplayer-button-position';
     const STYLE_ID = 'yt9527-scroll-miniplayer-style';
     const ACTIVE_CLASS = 'yt9527-scroll-miniplayer-active';
     const INTERACTING_CLASS = 'yt9527-scroll-miniplayer-interacting';
     const CONTROLS_CLASS = 'yt9527-scroll-miniplayer-controls';
+    const TOGGLE_BUTTON_ID = 'yt9527-scroll-miniplayer-toggle';
+    const TOGGLE_BUTTON_CLASS = 'yt9527-scroll-miniplayer-toggle';
+    const TOGGLE_BUTTON_OFF_CLASS = 'yt9527-scroll-miniplayer-toggle-off';
+    const TOGGLE_BUTTON_DRAGGING_CLASS = 'yt9527-scroll-miniplayer-toggle-dragging';
+    const TOGGLE_BUTTON_INDICATOR_CLASS = 'yt9527-scroll-miniplayer-toggle-indicator';
     const HTML_INTERACTING_CLASS = 'yt9527-scroll-miniplayer-html-interacting';
     const RESIZE_DIRECTIONS = ['n', 'e', 's', 'w', 'ne', 'nw', 'se', 'sw'];
 
@@ -55,6 +66,12 @@
         active: false,
         target: null,
         controls: null,
+        enabled: loadEnabled(),
+        toggleButton: null,
+        toggleButtonSavedPosition: loadToggleButtonPosition(),
+        toggleButtonCurrentPosition: null,
+        toggleInteraction: false,
+        toggleInteractionCleanup: null,
         preferredGeometry: loadGeometry(),
         currentGeometry: null,
         naturalBottomDocumentY: null,
@@ -144,6 +161,46 @@
         storageSet(STORAGE_KEY, saved);
     }
 
+    function loadEnabled() {
+        const value = storageGet(ENABLED_STORAGE_KEY, true);
+        return typeof value === 'string' ? value !== 'false' : value !== false;
+    }
+
+    function loadToggleButtonPosition() {
+        let value = storageGet(TOGGLE_BUTTON_STORAGE_KEY, null);
+        if (typeof value === 'string') {
+            try {
+                value = JSON.parse(value);
+            } catch (error) {
+                return null;
+            }
+        }
+
+        if (!value || typeof value !== 'object') {
+            return null;
+        }
+
+        const position = {
+            x: Number(value.x),
+            y: Number(value.y)
+        };
+
+        if (!Object.values(position).every(Number.isFinite)) {
+            return null;
+        }
+
+        return position;
+    }
+
+    function saveToggleButtonPosition(position) {
+        const saved = {
+            x: Math.round(position.x),
+            y: Math.round(position.y)
+        };
+        state.toggleButtonSavedPosition = saved;
+        storageSet(TOGGLE_BUTTON_STORAGE_KEY, saved);
+    }
+
     // ==================== 几何计算 ====================
 
     function clamp(value, min, max) {
@@ -189,6 +246,59 @@
 
     function getAppliedGeometry() {
         return clampGeometry(state.preferredGeometry || getDefaultGeometry());
+    }
+
+    function getToggleButtonSize() {
+        const rect = state.toggleButton?.getBoundingClientRect();
+        return {
+            width: Math.ceil(rect?.width) || 72,
+            height: Math.ceil(rect?.height) || 36
+        };
+    }
+
+    function clampToggleButtonPosition(position) {
+        const size = getToggleButtonSize();
+        return {
+            x: clamp(Math.round(position.x), 0, Math.max(0, window.innerWidth - size.width)),
+            y: clamp(Math.round(position.y), 0, Math.max(0, window.innerHeight - size.height))
+        };
+    }
+
+    function getDefaultToggleButtonPosition() {
+        const size = getToggleButtonSize();
+        const miniplayer = getAppliedGeometry();
+        let x = miniplayer.x + miniplayer.width - size.width;
+        let y = miniplayer.y - size.height - CONFIG.toggleButtonGap;
+
+        if (y < 0) {
+            y = miniplayer.y + miniplayer.height + CONFIG.toggleButtonGap;
+        }
+
+        return clampToggleButtonPosition({ x, y });
+    }
+
+    function getToggleButtonPosition() {
+        return clampToggleButtonPosition(
+            state.toggleButtonSavedPosition || getDefaultToggleButtonPosition()
+        );
+    }
+
+    function applyToggleButtonPosition(position) {
+        const next = clampToggleButtonPosition(position);
+        state.toggleButtonCurrentPosition = next;
+
+        if (!state.toggleButton) {
+            return;
+        }
+
+        state.toggleButton.style.setProperty('--yt9527-toggle-left', `${next.x}px`);
+        state.toggleButton.style.setProperty('--yt9527-toggle-top', `${next.y}px`);
+    }
+
+    function resetToggleButtonPosition() {
+        state.toggleButtonSavedPosition = null;
+        storageSet(TOGGLE_BUTTON_STORAGE_KEY, null);
+        applyToggleButtonPosition(getDefaultToggleButtonPosition());
     }
 
     function applyGeometry(geometry) {
@@ -259,6 +369,71 @@
                 z-index: 2147483647 !important;
                 pointer-events: none !important;
                 font-family: Arial, sans-serif !important;
+            }
+
+            #${TOGGLE_BUTTON_ID} {
+                position: fixed !important;
+                top: var(--yt9527-toggle-top, 0) !important;
+                left: var(--yt9527-toggle-left, 0) !important;
+                display: inline-flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                gap: 7px !important;
+                min-width: 72px !important;
+                height: 36px !important;
+                margin: 0 !important;
+                padding: 0 12px !important;
+                border: 1px solid rgba(255, 255, 255, 0.24) !important;
+                border-radius: 8px !important;
+                box-sizing: border-box !important;
+                background: rgba(18, 18, 18, 0.9) !important;
+                box-shadow: 0 5px 18px rgba(0, 0, 0, 0.3) !important;
+                color: #fff !important;
+                font: 600 13px/1 Arial, sans-serif !important;
+                letter-spacing: 0 !important;
+                text-transform: none !important;
+                white-space: nowrap !important;
+                cursor: grab !important;
+                pointer-events: auto !important;
+                touch-action: none !important;
+                user-select: none !important;
+                -webkit-user-select: none !important;
+                z-index: 2147483647 !important;
+                transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease, opacity 140ms ease !important;
+            }
+
+            #${TOGGLE_BUTTON_ID}:hover {
+                background: rgba(34, 34, 34, 0.96) !important;
+            }
+
+            #${TOGGLE_BUTTON_ID}:focus-visible {
+                outline: 2px solid rgba(96, 165, 250, 0.95) !important;
+                outline-offset: 2px !important;
+            }
+
+            #${TOGGLE_BUTTON_ID}.${TOGGLE_BUTTON_OFF_CLASS} {
+                border-color: rgba(255, 255, 255, 0.14) !important;
+                background: rgba(24, 24, 24, 0.78) !important;
+                color: rgba(255, 255, 255, 0.58) !important;
+            }
+
+            #${TOGGLE_BUTTON_ID}.${TOGGLE_BUTTON_DRAGGING_CLASS} {
+                cursor: grabbing !important;
+                opacity: 1 !important;
+            }
+
+            .${TOGGLE_BUTTON_INDICATOR_CLASS} {
+                width: 8px !important;
+                height: 8px !important;
+                flex: 0 0 8px !important;
+                border-radius: 50% !important;
+                background: #4ade80 !important;
+                box-shadow: 0 0 0 3px rgba(74, 222, 128, 0.14) !important;
+            }
+
+            #${TOGGLE_BUTTON_ID}.${TOGGLE_BUTTON_OFF_CLASS} .${TOGGLE_BUTTON_INDICATOR_CLASS} {
+                background: #9ca3af !important;
+                box-shadow: 0 0 0 3px rgba(156, 163, 175, 0.12) !important;
             }
 
             .yt9527-miniplayer-drag-handle {
@@ -392,6 +567,180 @@
 
         document.documentElement.appendChild(style);
         return true;
+    }
+
+    function createToggleButton() {
+        if (!document.body || state.toggleButton?.isConnected) {
+            return;
+        }
+
+        const button = document.createElement('button');
+        button.id = TOGGLE_BUTTON_ID;
+        button.className = TOGGLE_BUTTON_CLASS;
+        button.type = 'button';
+        button.tabIndex = 0;
+        button.setAttribute('role', 'switch');
+
+        const indicator = document.createElement('span');
+        indicator.className = TOGGLE_BUTTON_INDICATOR_CLASS;
+
+        const label = document.createElement('span');
+        label.textContent = '小窗';
+
+        button.append(indicator, label);
+        button.addEventListener('pointerdown', beginToggleButtonInteraction);
+        button.addEventListener('keydown', onToggleButtonKeyDown);
+        document.body.appendChild(button);
+
+        state.toggleButton = button;
+        updateToggleButtonState();
+        applyToggleButtonPosition(getToggleButtonPosition());
+    }
+
+    function updateToggleButtonState() {
+        const button = state.toggleButton;
+        if (!button) {
+            return;
+        }
+
+        button.classList.toggle(TOGGLE_BUTTON_OFF_CLASS, !state.enabled);
+        button.setAttribute('aria-checked', String(state.enabled));
+        button.setAttribute(
+            'aria-label',
+            state.enabled
+                ? '滚动小窗已开启，点击关闭，拖动可移动按钮'
+                : '滚动小窗已关闭，点击开启，拖动可移动按钮'
+        );
+        button.title = state.enabled
+            ? '滚动小窗：已开启；点击关闭，拖动可移动'
+            : '滚动小窗：已关闭；点击开启，拖动可移动';
+    }
+
+    function removeToggleButton() {
+        finishToggleButtonInteraction(false);
+        state.toggleButton?.remove();
+        state.toggleButton = null;
+        state.toggleButtonCurrentPosition = null;
+    }
+
+    function updateToggleButton() {
+        if (!isWatchPage() || isFullscreen() || !document.body) {
+            removeToggleButton();
+            return;
+        }
+
+        if (!state.toggleButton?.isConnected) {
+            state.toggleButton = null;
+            createToggleButton();
+            return;
+        }
+
+        updateToggleButtonState();
+        applyToggleButtonPosition(getToggleButtonPosition());
+    }
+
+    function setEnabled(enabled) {
+        state.enabled = Boolean(enabled);
+        storageSet(ENABLED_STORAGE_KEY, state.enabled);
+        updateToggleButtonState();
+
+        if (state.enabled) {
+            state.suppressUntilScrollY = null;
+        } else {
+            state.suppressUntilScrollY = null;
+            deactivateMiniplayer();
+        }
+
+        scheduleUpdate();
+    }
+
+    function toggleEnabled() {
+        setEnabled(!state.enabled);
+    }
+
+    function onToggleButtonKeyDown(event) {
+        if (event.key !== 'Enter' && event.key !== ' ') {
+            return;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+        toggleEnabled();
+    }
+
+    function beginToggleButtonInteraction(event) {
+        if (event.button !== 0 || !state.toggleButton) {
+            return;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+        state.toggleButton.focus();
+
+        if (state.toggleInteraction) {
+            finishToggleButtonInteraction(false);
+        }
+
+        const startPosition = state.toggleButtonCurrentPosition || getToggleButtonPosition();
+        const startX = event.clientX;
+        const startY = event.clientY;
+        let moved = false;
+
+        state.toggleInteraction = true;
+        state.toggleButton.classList.add(TOGGLE_BUTTON_DRAGGING_CLASS);
+        document.documentElement.classList.add(HTML_INTERACTING_CLASS);
+
+        const onPointerMove = (moveEvent) => {
+            const dx = moveEvent.clientX - startX;
+            const dy = moveEvent.clientY - startY;
+
+            if (!moved && Math.hypot(dx, dy) < CONFIG.toggleButtonDragThreshold) {
+                return;
+            }
+
+            moved = true;
+            moveEvent.preventDefault();
+            applyToggleButtonPosition({
+                x: startPosition.x + dx,
+                y: startPosition.y + dy
+            });
+        };
+
+        const onPointerEnd = () => {
+            const shouldSave = moved;
+            finishToggleButtonInteraction(shouldSave);
+
+            if (!shouldSave) {
+                toggleEnabled();
+            }
+        };
+        const onPointerCancel = () => finishToggleButtonInteraction(false);
+
+        state.toggleInteractionCleanup = () => {
+            window.removeEventListener('pointermove', onPointerMove, true);
+            window.removeEventListener('pointerup', onPointerEnd, true);
+            window.removeEventListener('pointercancel', onPointerCancel, true);
+        };
+
+        window.addEventListener('pointermove', onPointerMove, true);
+        window.addEventListener('pointerup', onPointerEnd, true);
+        window.addEventListener('pointercancel', onPointerCancel, true);
+    }
+
+    function finishToggleButtonInteraction(save) {
+        if (!state.toggleInteraction && !state.toggleInteractionCleanup) {
+            return;
+        }
+
+        state.toggleInteraction = false;
+        state.toggleInteractionCleanup?.();
+        state.toggleInteractionCleanup = null;
+        state.toggleButton?.classList.remove(TOGGLE_BUTTON_DRAGGING_CLASS);
+        document.documentElement.classList.remove(HTML_INTERACTING_CLASS);
+
+        if (save && state.toggleButtonCurrentPosition) {
+            saveToggleButtonPosition(state.toggleButtonCurrentPosition);
+        }
     }
 
     function createControls() {
@@ -633,6 +982,11 @@
             return;
         }
 
+        if (!state.enabled) {
+            deactivateMiniplayer();
+            return;
+        }
+
         if (state.interaction) {
             return;
         }
@@ -689,6 +1043,7 @@
         state.scrollFrame = window.requestAnimationFrame(() => {
             state.scrollFrame = 0;
             ensureStyle();
+            updateToggleButton();
             updateMiniplayer();
         });
     }
@@ -718,6 +1073,10 @@
     }
 
     function onWindowResize() {
+        if (state.toggleButton?.isConnected && !state.toggleInteraction) {
+            applyToggleButtonPosition(getToggleButtonPosition());
+        }
+
         if (state.active && !state.interaction) {
             applyGeometry(getAppliedGeometry());
         }
@@ -740,7 +1099,10 @@
         window.addEventListener('yt-navigate-finish', onNavigationFinish);
         document.addEventListener('yt-navigate-start', onNavigationStart);
         document.addEventListener('yt-navigate-finish', onNavigationFinish);
-        window.addEventListener('blur', () => finishInteraction(true));
+        window.addEventListener('blur', () => {
+            finishInteraction(true);
+            finishToggleButtonInteraction(true);
+        });
         document.addEventListener('fullscreenchange', onFullscreenChange, true);
         document.addEventListener('webkitfullscreenchange', onFullscreenChange, true);
         document.addEventListener('click', (event) => {
@@ -751,6 +1113,8 @@
 
         if (typeof GM_registerMenuCommand === 'function') {
             GM_registerMenuCommand('恢复小窗默认位置和大小', resetGeometry);
+            GM_registerMenuCommand('切换滚动小窗开关', toggleEnabled);
+            GM_registerMenuCommand('恢复小窗按钮默认位置', resetToggleButtonPosition);
         }
 
         if (document.readyState === 'loading') {
