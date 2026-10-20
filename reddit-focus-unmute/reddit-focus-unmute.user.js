@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         9527Reddit视频焦点发声
 // @namespace    https://github.com/Godwin9527
-// @version      1.1.0
+// @version      1.1.2
 // @description  Reddit 滚动浏览时，视口中心的视频自动取消静音，其余视频自动静音，保证同一时刻只有一个视频发声
 // @author       Godwin9527
 // @run-at       document-idle
@@ -57,6 +57,7 @@
     const records = new Map();
     const embedRecords = new Map();
     const gifUrlCache = new Map();
+    const embedFailures = [];
     let activeVideo = null;
     let config = loadConfig();
     let evaluateTimer = 0;
@@ -379,22 +380,32 @@
     }
 
     function gmRequest(url, headers) {
-        return new Promise((resolve, reject) => {
+        return new Promise((resolve) => {
             if (typeof GM_xmlhttpRequest === 'function') {
                 GM_xmlhttpRequest({
                     method: 'GET',
                     url,
                     headers: headers || {},
                     timeout: 15000,
-                    onload: (response) => resolve({ status: response.status, text: response.responseText }),
-                    onerror: () => reject(new Error('network error')),
-                    ontimeout: () => reject(new Error('timeout')),
+                    onload: (response) => resolve({
+                        ok: response.status >= 200 && response.status < 300,
+                        status: response.status,
+                        text: response.responseText || '',
+                        reason: '',
+                    }),
+                    onerror: () => resolve({ ok: false, status: 0, text: '', reason: '网络错误' }),
+                    ontimeout: () => resolve({ ok: false, status: 0, text: '', reason: '请求超时' }),
                 });
                 return;
             }
             fetch(url, { headers: headers || {} })
-                .then(async (response) => resolve({ status: response.status, text: await response.text() }))
-                .catch(reject);
+                .then(async (response) => resolve({
+                    ok: response.ok,
+                    status: response.status,
+                    text: await response.text(),
+                    reason: '',
+                }))
+                .catch(() => resolve({ ok: false, status: 0, text: '', reason: 'fetch 被跨域拦截（GM_xmlhttpRequest 不可用）' }));
         });
     }
 
@@ -403,9 +414,12 @@
             return redgifsToken;
         }
         const response = await gmRequest('https://api.redgifs.com/v2/auth/temporary');
+        if (!response.ok) {
+            throw new Error(`token 接口 ${response.status || response.reason}`);
+        }
         const data = JSON.parse(response.text);
         if (!data || !data.token) {
-            throw new Error('token missing');
+            throw new Error('token 字段缺失');
         }
         redgifsToken = data.token;
         redgifsTokenAt = Date.now();
@@ -414,28 +428,36 @@
 
     async function getGifUrls(id) {
         if (gifUrlCache.has(id)) {
-            return gifUrlCache.get(id);
+            return { ok: true, urls: gifUrlCache.get(id) };
         }
-        try {
-            let token = await getRedgifsToken(false);
-            let response = await gmRequest(`https://api.redgifs.com/v2/gifs/${id}`, { Authorization: `Bearer ${token}` });
-            if (response.status === 401) {
-                token = await getRedgifsToken(true);
-                response = await gmRequest(`https://api.redgifs.com/v2/gifs/${id}`, { Authorization: `Bearer ${token}` });
+        let reason = '';
+        // 第一次常规请求；失败则换 token 并补上 Referer 再试一次
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+            try {
+                const token = await getRedgifsToken(attempt > 0);
+                const headers = { Authorization: `Bearer ${token}` };
+                if (attempt > 0) {
+                    headers.Referer = 'https://www.redgifs.com/';
+                    headers.Origin = 'https://www.redgifs.com';
+                }
+                const response = await gmRequest(`https://api.redgifs.com/v2/gifs/${id}`, headers);
+                if (!response.ok) {
+                    reason = `接口 ${response.status || response.reason}`;
+                    continue;
+                }
+                const data = JSON.parse(response.text);
+                const urls = data && data.urls ? { hd: data.urls.hd || '', sd: data.urls.sd || '' } : null;
+                if (!urls || (!urls.hd && !urls.sd)) {
+                    reason = '接口未返回直链';
+                    continue;
+                }
+                gifUrlCache.set(id, urls);
+                return { ok: true, urls };
+            } catch (error) {
+                reason = error && error.message ? error.message : String(error);
             }
-            if (response.status !== 200) {
-                return null;
-            }
-            const data = JSON.parse(response.text);
-            const urls = data && data.urls ? { hd: data.urls.hd || '', sd: data.urls.sd || '' } : null;
-            if (!urls || (!urls.hd && !urls.sd)) {
-                return null;
-            }
-            gifUrlCache.set(id, urls);
-            return urls;
-        } catch (error) {
-            return null;
         }
+        return { ok: false, reason: reason || '未知原因' };
     }
 
     function activateNearbyEmbeds() {
@@ -474,15 +496,29 @@
             embedRecords.set(embed, { state: 'skipped' });
             return;
         }
-        const entry = { state: 'loading', iframe, id, video: null };
+        const entry = { state: 'loading', iframe, id, video: null, reason: '' };
         embedRecords.set(embed, entry);
-        getGifUrls(id).then((urls) => {
-            if (!urls || !embed.isConnected || !iframe.isConnected) {
-                entry.state = 'failed';
+        getGifUrls(id).then((result) => {
+            if (!result.ok) {
+                failEmbed(entry, `取直链失败：${result.reason}`);
                 return;
             }
-            mountVideo(embed, iframe, urls, entry);
+            if (!embed.isConnected || !iframe.isConnected) {
+                failEmbed(entry, '节点已被移除');
+                return;
+            }
+            mountVideo(embed, iframe, result.urls, entry);
         });
+    }
+
+    function failEmbed(entry, reason) {
+        entry.state = 'failed';
+        entry.reason = reason;
+        embedFailures.unshift(`${entry.id}：${reason}`);
+        if (embedFailures.length > 5) {
+            embedFailures.length = 5;
+        }
+        console.warn(`${LOG_PREFIX} redgifs 接管失败 — ${entry.id}：${reason}`);
     }
 
     function mountVideo(embed, iframe, urls, entry) {
@@ -510,8 +546,16 @@
         }
 
         video.addEventListener('error', () => {
+            // 直链失败先换另一个源重试一次，仍失败则还原原始 iframe
+            const alternate = video.src === urls.hd ? urls.sd : urls.hd;
+            if (!entry.triedAlternate && alternate) {
+                entry.triedAlternate = true;
+                video.src = alternate;
+                video.play().catch(() => {});
+                return;
+            }
             restoreEmbed(embed);
-            entry.state = 'failed';
+            failEmbed(entry, '视频加载失败（可能防盗链）');
         });
         video.addEventListener('canplay', () => {
             iframe.style.visibility = 'hidden';
@@ -775,6 +819,31 @@
         }
     }
 
+    async function testRedgifsApi() {
+        let id = '';
+        for (const embed of document.querySelectorAll(EMBED_SELECTOR)) {
+            const iframe = findEmbedIframe(embed);
+            const parsed = iframe ? parseRedgifsId(iframe.src) : '';
+            if (parsed) {
+                id = parsed;
+                break;
+            }
+        }
+        if (!id) {
+            showToast('当前页面没找到 redgifs 嵌入');
+            return;
+        }
+        showToast(`正在测试接口：${id}`);
+        const result = await getGifUrls(id);
+        if (result.ok) {
+            console.log(`${LOG_PREFIX} 接口正常`, result.urls);
+            showToast('接口正常，已拿到直链');
+        } else {
+            console.warn(`${LOG_PREFIX} 接口失败：${result.reason}`);
+            showToast(`接口失败：${result.reason}`);
+        }
+    }
+
     function dumpDiagnostics() {
         scanVideos();
         const lines = [];
@@ -782,6 +851,10 @@
         const embedDone = [...embedRecords.values()].filter((entry) => entry.state === 'done').length;
         const embedFailed = [...embedRecords.values()].filter((entry) => entry.state === 'failed').length;
         lines.push(`  redgifs: 接管=${config.redgifs ? '开' : '关'} 已替换=${embedDone} 失败=${embedFailed}`);
+        if (embedFailures.length) {
+            lines.push(`  失败原因: ${embedFailures.slice(0, 3).join(' / ')}`);
+        }
+        lines.push(`  GM_xmlhttpRequest=${typeof GM_xmlhttpRequest === 'function' ? '可用' : '不可用（会走 fetch，可能被跨域拦截）'}`);
         for (const record of records.values()) {
             const metrics = measure(record);
             lines.push([
@@ -823,6 +896,7 @@
         };
         register(`${config.enabled ? '✅' : '⛔'} 焦点发声：${config.enabled ? '已开启' : '已关闭'}`, toggleEnabled);
         register(`🎬 redgifs 接管：${config.redgifs ? '已开启' : '已关闭'}（点击切换）`, toggleRedgifs);
+        register('🧪 测试 redgifs 接口', testRedgifsApi);
         register(`🎯 可见阈值：${Math.round(config.minRatio * 100)}%（点击切换）`, cycleRatio);
         register(`⏱ 响应延迟：${config.settleMs} ms（点击切换）`, cycleSettle);
         register('🩺 输出诊断信息', dumpDiagnostics);
