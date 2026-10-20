@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         9527Reddit视频焦点发声
 // @namespace    https://github.com/Godwin9527
-// @version      1.1.3
+// @version      1.1.4
 // @description  Reddit 滚动浏览时，视口中心的视频自动取消静音，其余视频自动静音，保证同一时刻只有一个视频发声
 // @author       Godwin9527
 // @run-at       document-idle
@@ -448,9 +448,13 @@
                     continue;
                 }
                 const data = JSON.parse(response.text);
-                const urls = data && data.urls ? { hd: data.urls.hd || '', sd: data.urls.sd || '' } : null;
+                // 接口实际结构是 { gif: { urls: { hd, sd } }, user, niches }
+                const gif = data && (data.gif || data);
+                const rawUrls = gif && gif.urls ? gif.urls : null;
+                const urls = rawUrls ? { hd: rawUrls.hd || '', sd: rawUrls.sd || '' } : null;
                 if (!urls || (!urls.hd && !urls.sd)) {
-                    reason = '接口未返回直链';
+                    const fields = data ? Object.keys(data).join(',') : '无';
+                    reason = `接口未返回直链（顶层字段：${fields}）`;
                     continue;
                 }
                 gifUrlCache.set(id, urls);
