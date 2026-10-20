@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         9527Reddit视频焦点发声
 // @namespace    https://github.com/Godwin9527
-// @version      1.0.1
+// @version      1.1.0
 // @description  Reddit 滚动浏览时，视口中心的视频自动取消静音，其余视频自动静音，保证同一时刻只有一个视频发声
 // @author       Godwin9527
 // @run-at       document-idle
@@ -12,6 +12,8 @@
 // @grant        GM_setValue
 // @grant        GM_registerMenuCommand
 // @grant        GM_unregisterMenuCommand
+// @grant        GM_xmlhttpRequest
+// @connect      api.redgifs.com
 // @noframes
 // @license      MIT
 // @downloadURL  https://raw.githubusercontent.com/Godwin9527/9527-script-personal/main/reddit-focus-unmute/reddit-focus-unmute.user.js
@@ -27,6 +29,8 @@
     const LOG_PREFIX = '[焦点发声]';
 
     const PLAYER_SELECTOR = 'shreddit-player, shreddit-player-2';
+    const EMBED_SELECTOR = 'shreddit-embed';
+    const REDGIFS_SRC_RE = /redgifs\.com\/(?:ifr|watch)\/([A-Za-z0-9]+)/i;
     const MUTE_LABEL_STRICT_RE = /(mute|unmute|静音|声音|sound)/i;
     const MUTE_LABEL_LOOSE_RE = /(volume|audio|音量)/i;
 
@@ -40,15 +44,19 @@
     const SCAN_DEBOUNCE_MS = 400;
     const SWEEP_INTERVAL_MS = 2000;
     const DEEP_SCAN_INTERVAL_MS = 10000;
+    const TOKEN_TTL_MS = 6 * 60 * 60 * 1000;
     const DEPTH_LIMIT = 6;
 
     const DEFAULTS = {
         enabled: true,
         minRatio: 0.35,
         settleMs: 180,
+        redgifs: true,
     };
 
     const records = new Map();
+    const embedRecords = new Map();
+    const gifUrlCache = new Map();
     let activeVideo = null;
     let config = loadConfig();
     let evaluateTimer = 0;
@@ -57,6 +65,8 @@
     let lastGestureAt = 0;
     let lastDeepScanAt = 0;
     let menuIds = [];
+    let redgifsToken = '';
+    let redgifsTokenAt = 0;
 
     /* ---------------- 配置 ---------------- */
 
@@ -74,6 +84,7 @@
             enabled: typeof saved.enabled === 'boolean' ? saved.enabled : DEFAULTS.enabled,
             minRatio: Number.isFinite(Number(saved.minRatio)) ? clampRatio(Number(saved.minRatio)) : DEFAULTS.minRatio,
             settleMs: Number.isFinite(Number(saved.settleMs)) ? clampSettle(Number(saved.settleMs)) : DEFAULTS.settleMs,
+            redgifs: typeof saved.redgifs === 'boolean' ? saved.redgifs : DEFAULTS.redgifs,
         };
     }
 
@@ -178,6 +189,11 @@
                 found.add(video);
             }
         }
+        for (const embed of document.querySelectorAll(EMBED_SELECTOR)) {
+            for (const video of deepQueryAll(embed, 'video')) {
+                found.add(video);
+            }
+        }
         // 兜底：结构变化导致上面都没找到时，全文档深扫一次（限频，避免拖慢页面）
         if (found.size === 0 && Date.now() - lastDeepScanAt > DEEP_SCAN_INTERVAL_MS) {
             lastDeepScanAt = Date.now();
@@ -206,11 +222,13 @@
         const record = {
             video,
             player: findPlayer(video),
+            owned: video.dataset.rfuOwned === '1',
             layer: 0,
             guardUntil: 0,
             overrideAt: 0,
             button: null,
             buttonMisses: 0,
+            userPaused: false,
         };
 
         video.addEventListener('volumechange', () => {
@@ -344,6 +362,225 @@
         }
     }
 
+    /* ---------------- redgifs 嵌入接管 ---------------- */
+    // Reddit 的 redgifs 帖子用 <shreddit-embed> 里的跨域 iframe 播放，父页面无法访问。
+    // 这里用 redgifs 官方 API 取 mp4 直链，替换成自己的 <video>，才能控制静音。
+
+    function findEmbedIframe(embed) {
+        for (const iframe of deepQueryAll(embed, 'iframe', 3)) {
+            return iframe;
+        }
+        return null;
+    }
+
+    function parseRedgifsId(src) {
+        const match = REDGIFS_SRC_RE.exec(src || '');
+        return match ? match[1] : '';
+    }
+
+    function gmRequest(url, headers) {
+        return new Promise((resolve, reject) => {
+            if (typeof GM_xmlhttpRequest === 'function') {
+                GM_xmlhttpRequest({
+                    method: 'GET',
+                    url,
+                    headers: headers || {},
+                    timeout: 15000,
+                    onload: (response) => resolve({ status: response.status, text: response.responseText }),
+                    onerror: () => reject(new Error('network error')),
+                    ontimeout: () => reject(new Error('timeout')),
+                });
+                return;
+            }
+            fetch(url, { headers: headers || {} })
+                .then(async (response) => resolve({ status: response.status, text: await response.text() }))
+                .catch(reject);
+        });
+    }
+
+    async function getRedgifsToken(force) {
+        if (!force && redgifsToken && Date.now() - redgifsTokenAt < TOKEN_TTL_MS) {
+            return redgifsToken;
+        }
+        const response = await gmRequest('https://api.redgifs.com/v2/auth/temporary');
+        const data = JSON.parse(response.text);
+        if (!data || !data.token) {
+            throw new Error('token missing');
+        }
+        redgifsToken = data.token;
+        redgifsTokenAt = Date.now();
+        return redgifsToken;
+    }
+
+    async function getGifUrls(id) {
+        if (gifUrlCache.has(id)) {
+            return gifUrlCache.get(id);
+        }
+        try {
+            let token = await getRedgifsToken(false);
+            let response = await gmRequest(`https://api.redgifs.com/v2/gifs/${id}`, { Authorization: `Bearer ${token}` });
+            if (response.status === 401) {
+                token = await getRedgifsToken(true);
+                response = await gmRequest(`https://api.redgifs.com/v2/gifs/${id}`, { Authorization: `Bearer ${token}` });
+            }
+            if (response.status !== 200) {
+                return null;
+            }
+            const data = JSON.parse(response.text);
+            const urls = data && data.urls ? { hd: data.urls.hd || '', sd: data.urls.sd || '' } : null;
+            if (!urls || (!urls.hd && !urls.sd)) {
+                return null;
+            }
+            gifUrlCache.set(id, urls);
+            return urls;
+        } catch (error) {
+            return null;
+        }
+    }
+
+    function activateNearbyEmbeds() {
+        if (!config.redgifs) {
+            return;
+        }
+        // 清理已被 Reddit 移除的嵌入（SPA 切换会丢弃旧节点）
+        for (const [embed, entry] of embedRecords) {
+            if (!embed.isConnected) {
+                if (entry.video && entry.video.isConnected) {
+                    entry.video.remove();
+                }
+                embedRecords.delete(embed);
+            }
+        }
+        const viewportHeight = window.innerHeight;
+        for (const embed of document.querySelectorAll(EMBED_SELECTOR)) {
+            if (embedRecords.has(embed)) {
+                continue;
+            }
+            const rect = embed.getBoundingClientRect();
+            if (rect.bottom < -viewportHeight || rect.top > viewportHeight * 2) {
+                continue;
+            }
+            startEmbed(embed);
+        }
+    }
+
+    function startEmbed(embed) {
+        const iframe = findEmbedIframe(embed);
+        if (!iframe) {
+            return;
+        }
+        const id = parseRedgifsId(iframe.src);
+        if (!id) {
+            embedRecords.set(embed, { state: 'skipped' });
+            return;
+        }
+        const entry = { state: 'loading', iframe, id, video: null };
+        embedRecords.set(embed, entry);
+        getGifUrls(id).then((urls) => {
+            if (!urls || !embed.isConnected || !iframe.isConnected) {
+                entry.state = 'failed';
+                return;
+            }
+            mountVideo(embed, iframe, urls, entry);
+        });
+    }
+
+    function mountVideo(embed, iframe, urls, entry) {
+        const container = iframe.parentElement;
+        if (!container) {
+            entry.state = 'failed';
+            return;
+        }
+        const width = container.clientWidth || 0;
+        const source = width >= 640 && urls.hd ? urls.hd : (urls.sd || urls.hd);
+
+        const video = document.createElement('video');
+        video.dataset.rfuOwned = '1';
+        video.src = source;
+        video.muted = true;
+        video.loop = true;
+        video.autoplay = true;
+        video.playsInline = true;
+        video.setAttribute('playsinline', '');
+        video.preload = 'metadata';
+        video.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000;display:block;z-index:1;';
+
+        if (window.getComputedStyle(container).position === 'static') {
+            container.style.position = 'relative';
+        }
+
+        video.addEventListener('error', () => {
+            restoreEmbed(embed);
+            entry.state = 'failed';
+        });
+        video.addEventListener('canplay', () => {
+            iframe.style.visibility = 'hidden';
+            iframe.style.pointerEvents = 'none';
+        }, { once: true });
+        video.addEventListener('click', () => {
+            const record = records.get(video);
+            if (video.paused) {
+                video.play().catch(() => {});
+                if (record) {
+                    record.userPaused = false;
+                }
+            } else {
+                video.pause();
+                if (record) {
+                    record.userPaused = true;
+                }
+            }
+        });
+
+        container.appendChild(video);
+        entry.video = video;
+        entry.state = 'done';
+        video.play().catch(() => {});
+        scheduleScan();
+    }
+
+    function restoreEmbed(embed) {
+        const entry = embedRecords.get(embed);
+        if (!entry) {
+            return;
+        }
+        if (entry.video && entry.video.isConnected) {
+            entry.video.remove();
+        }
+        if (entry.iframe && entry.iframe.isConnected) {
+            entry.iframe.style.visibility = '';
+            entry.iframe.style.pointerEvents = '';
+        }
+        embedRecords.delete(embed);
+    }
+
+    function restoreAllEmbeds() {
+        for (const embed of [...embedRecords.keys()]) {
+            restoreEmbed(embed);
+        }
+    }
+
+    function maintainOwnedPlayback() {
+        if (!config.redgifs) {
+            return;
+        }
+        const viewportHeight = window.innerHeight;
+        for (const record of records.values()) {
+            if (!record.owned) {
+                continue;
+            }
+            const rect = record.video.getBoundingClientRect();
+            const farAway = rect.bottom < -viewportHeight || rect.top > viewportHeight * 2;
+            if (farAway) {
+                if (!record.video.paused) {
+                    record.video.pause();
+                }
+            } else if (record.video.paused && !record.userPaused) {
+                record.video.play().catch(() => {});
+            }
+        }
+    }
+
     /* ---------------- 焦点判定 ---------------- */
 
     function measure(record) {
@@ -400,6 +637,7 @@
             return;
         }
         scanVideos();
+        activateNearbyEmbeds();
         const target = pickTarget();
         setActive(target ? target.video : null);
     }
@@ -524,14 +762,30 @@
         showToast(`响应延迟：${config.settleMs} ms`);
     }
 
+    function toggleRedgifs() {
+        config.redgifs = !config.redgifs;
+        saveConfig();
+        refreshMenus();
+        if (config.redgifs) {
+            showToast('redgifs 接管已开启');
+            scheduleEvaluate(0);
+        } else {
+            restoreAllEmbeds();
+            showToast('redgifs 接管已关闭，已还原原始嵌入');
+        }
+    }
+
     function dumpDiagnostics() {
         scanVideos();
         const lines = [];
         lines.push(`${LOG_PREFIX} 视频=${records.size} 当前焦点=${activeVideo ? '有' : '无'} 开关=${config.enabled ? '开' : '关'} 阈值=${Math.round(config.minRatio * 100)}% 延迟=${config.settleMs}ms`);
+        const embedDone = [...embedRecords.values()].filter((entry) => entry.state === 'done').length;
+        const embedFailed = [...embedRecords.values()].filter((entry) => entry.state === 'failed').length;
+        lines.push(`  redgifs: 接管=${config.redgifs ? '开' : '关'} 已替换=${embedDone} 失败=${embedFailed}`);
         for (const record of records.values()) {
             const metrics = measure(record);
             lines.push([
-                `  ${record.player ? record.player.tagName.toLowerCase() : '独立video'}`,
+                `  ${record.owned ? 'redgifs替换' : (record.player ? record.player.tagName.toLowerCase() : '独立video')}`,
                 `muted=${record.video.muted}`,
                 `paused=${record.video.paused}`,
                 `可见=${metrics ? Math.round(metrics.ratio * 100) + '%' : '-'}`,
@@ -541,7 +795,7 @@
             ].join(' '));
         }
         if (records.size === 0) {
-            lines.push('  未发现可控制的视频（redgifs 等跨域 iframe 无法控制）');
+            lines.push('  未发现可控制的视频（若帖子是 redgifs 嵌入，请确认“redgifs 接管”已开启并已滚动到该帖子）');
         }
         console.log(lines.join('\n'));
         showToast('诊断信息已输出到控制台');
@@ -568,6 +822,7 @@
             }
         };
         register(`${config.enabled ? '✅' : '⛔'} 焦点发声：${config.enabled ? '已开启' : '已关闭'}`, toggleEnabled);
+        register(`🎬 redgifs 接管：${config.redgifs ? '已开启' : '已关闭'}（点击切换）`, toggleRedgifs);
         register(`🎯 可见阈值：${Math.round(config.minRatio * 100)}%（点击切换）`, cycleRatio);
         register(`⏱ 响应延迟：${config.settleMs} ms（点击切换）`, cycleSettle);
         register('🩺 输出诊断信息', dumpDiagnostics);
@@ -607,6 +862,7 @@
         sweepTimer = window.setInterval(() => {
             if (document.visibilityState === 'visible') {
                 enforceSingleSound();
+                maintainOwnedPlayback();
             }
         }, SWEEP_INTERVAL_MS);
     }
