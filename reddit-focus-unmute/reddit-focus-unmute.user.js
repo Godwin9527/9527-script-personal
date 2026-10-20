@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         9527Reddit视频焦点发声
 // @namespace    https://github.com/Godwin9527
-// @version      1.1.4
+// @version      1.1.5
 // @description  Reddit 滚动浏览时，视口中心的视频自动取消静音，其余视频自动静音，保证同一时刻只有一个视频发声
 // @author       Godwin9527
 // @run-at       document-idle
@@ -29,6 +29,17 @@
     const TOAST_HOST_ID = 'reddit-focus-unmute-toast';
     const PANEL_HOST_ID = 'reddit-focus-unmute-panel';
     const LOG_PREFIX = '[焦点发声]';
+    const FALLBACK_VERSION = '1.1.5';
+    const SCRIPT_VERSION = (() => {
+        try {
+            if (typeof GM_info === 'object' && GM_info && GM_info.script && GM_info.script.version) {
+                return GM_info.script.version;
+            }
+        } catch (error) {
+            // 忽略
+        }
+        return FALLBACK_VERSION;
+    })();
 
     const PLAYER_SELECTOR = 'shreddit-player, shreddit-player-2';
     const EMBED_SELECTOR = 'shreddit-embed';
@@ -982,7 +993,7 @@
     function dumpDiagnostics() {
         scanVideos();
         const lines = [];
-        lines.push(`${LOG_PREFIX} 视频=${records.size} 当前焦点=${activeVideo ? '有' : '无'} 开关=${config.enabled ? '开' : '关'} 阈值=${Math.round(config.minRatio * 100)}% 延迟=${config.settleMs}ms`);
+        lines.push(`${LOG_PREFIX} 版本=${SCRIPT_VERSION} 视频=${records.size} 当前焦点=${activeVideo ? '有' : '无'} 开关=${config.enabled ? '开' : '关'} 阈值=${Math.round(config.minRatio * 100)}% 延迟=${config.settleMs}ms`);
         const embedDone = [...embedRecords.values()].filter((entry) => entry.state === 'done').length;
         const embedFailed = [...embedRecords.values()].filter((entry) => entry.state === 'failed').length;
         lines.push(`  redgifs: 接管=${config.redgifs ? '开' : '关'} 已替换=${embedDone} 失败=${embedFailed}`);
