@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         9527Reddit视频焦点发声
 // @namespace    https://github.com/Godwin9527
-// @version      1.1.2
+// @version      1.1.3
 // @description  Reddit 滚动浏览时，视口中心的视频自动取消静音，其余视频自动静音，保证同一时刻只有一个视频发声
 // @author       Godwin9527
 // @run-at       document-idle
@@ -13,6 +13,7 @@
 // @grant        GM_registerMenuCommand
 // @grant        GM_unregisterMenuCommand
 // @grant        GM_xmlhttpRequest
+// @grant        GM_setClipboard
 // @connect      api.redgifs.com
 // @noframes
 // @license      MIT
@@ -26,6 +27,7 @@
     const STORAGE_KEY = 'reddit-focus-unmute-config';
     const STORAGE_PREFIX = '9527-reddit-focus-unmute:';
     const TOAST_HOST_ID = 'reddit-focus-unmute-toast';
+    const PANEL_HOST_ID = 'reddit-focus-unmute-panel';
     const LOG_PREFIX = '[焦点发声]';
 
     const PLAYER_SELECTOR = 'shreddit-player, shreddit-player-2';
@@ -739,6 +741,135 @@
 
     /* ---------------- 提示 ---------------- */
 
+    function showDiagnosticsPanel(text) {
+        let host = document.getElementById(PANEL_HOST_ID);
+        if (!host) {
+            host = document.createElement('div');
+            host.id = PANEL_HOST_ID;
+            host.attachShadow({ mode: 'open' });
+            document.documentElement.appendChild(host);
+        }
+
+        const shadow = host.shadowRoot;
+        shadow.innerHTML = `
+            <style>
+                :host { all: initial; color-scheme: dark; }
+                .overlay {
+                    position: fixed;
+                    inset: 0;
+                    z-index: 2147483647;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    padding: 16px;
+                    box-sizing: border-box;
+                    background: rgba(0, 0, 0, 0.55);
+                    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+                }
+                .card {
+                    width: min(620px, 100%);
+                    max-height: 76vh;
+                    display: flex;
+                    flex-direction: column;
+                    box-sizing: border-box;
+                    padding: 18px;
+                    border: 1px solid #33363a;
+                    border-radius: 10px;
+                    background: #1b1d20;
+                    color: #e8eaed;
+                    box-shadow: 0 18px 55px rgba(0, 0, 0, 0.5);
+                }
+                h2 {
+                    margin: 0 0 12px;
+                    font-size: 15px;
+                    font-weight: 650;
+                }
+                pre {
+                    flex: 1;
+                    min-height: 80px;
+                    margin: 0;
+                    padding: 12px;
+                    overflow: auto;
+                    border: 1px solid #33363a;
+                    border-radius: 7px;
+                    background: #121417;
+                    color: #d6dae0;
+                    font: 12.5px/1.6 ui-monospace, Consolas, "Courier New", monospace;
+                    white-space: pre-wrap;
+                    word-break: break-all;
+                    user-select: text;
+                }
+                .actions {
+                    display: flex;
+                    gap: 10px;
+                    margin-top: 14px;
+                }
+                button {
+                    flex: 1;
+                    min-height: 36px;
+                    border: 1px solid #3c4045;
+                    border-radius: 7px;
+                    background: #26292d;
+                    color: #e8eaed;
+                    font: inherit;
+                    font-size: 13.5px;
+                    cursor: pointer;
+                }
+                button:hover { background: #32363b; }
+                button.primary { border-color: #ff4500; background: #ff4500; color: #fff; }
+                button.primary:hover { background: #e03d00; }
+            </style>
+            <div class="overlay">
+                <section class="card">
+                    <h2>Reddit 视频焦点发声 · 诊断</h2>
+                    <pre></pre>
+                    <div class="actions">
+                        <button class="primary" type="button" data-action="copy">复制全部</button>
+                        <button type="button" data-action="close">关闭</button>
+                    </div>
+                </section>
+            </div>
+        `;
+
+        shadow.querySelector('pre').textContent = text;
+
+        const overlay = shadow.querySelector('.overlay');
+        overlay.addEventListener('mousedown', (event) => {
+            if (event.target === overlay) {
+                host.remove();
+            }
+        });
+        shadow.querySelector('[data-action="close"]').addEventListener('click', () => host.remove());
+        shadow.querySelector('[data-action="copy"]').addEventListener('click', () => {
+            copyText(text);
+        });
+    }
+
+    function copyText(text) {
+        if (typeof GM_setClipboard === 'function') {
+            try {
+                GM_setClipboard(text);
+                showToast('诊断信息已复制');
+                return;
+            } catch (error) {
+                // 落到下面的兜底
+            }
+        }
+        const area = document.createElement('textarea');
+        area.value = text;
+        area.style.cssText = 'position:fixed;left:-9999px;top:0;';
+        document.body.appendChild(area);
+        area.select();
+        let ok = false;
+        try {
+            ok = document.execCommand('copy');
+        } catch (error) {
+            ok = false;
+        }
+        area.remove();
+        showToast(ok ? '诊断信息已复制' : '复制失败，请手动选中文本复制');
+    }
+
     function showToast(message) {
         let host = document.getElementById(TOAST_HOST_ID);
         if (!host) {
@@ -870,8 +1001,9 @@
         if (records.size === 0) {
             lines.push('  未发现可控制的视频（若帖子是 redgifs 嵌入，请确认“redgifs 接管”已开启并已滚动到该帖子）');
         }
-        console.log(lines.join('\n'));
-        showToast('诊断信息已输出到控制台');
+        const text = lines.join('\n');
+        console.log(text);
+        showDiagnosticsPanel(text);
     }
 
     function refreshMenus() {
