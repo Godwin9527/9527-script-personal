@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         9527Reddit视频焦点发声
 // @namespace    https://github.com/Godwin9527
-// @version      1.0.0
+// @version      1.0.1
 // @description  Reddit 滚动浏览时，视口中心的视频自动取消静音，其余视频自动静音，保证同一时刻只有一个视频发声
 // @author       Godwin9527
 // @run-at       document-idle
@@ -39,7 +39,8 @@
     const HYSTERESIS_RATIO = 0.2;
     const SCAN_DEBOUNCE_MS = 400;
     const SWEEP_INTERVAL_MS = 2000;
-    const DEPTH_LIMIT = 3;
+    const DEEP_SCAN_INTERVAL_MS = 10000;
+    const DEPTH_LIMIT = 6;
 
     const DEFAULTS = {
         enabled: true,
@@ -54,6 +55,7 @@
     let scanTimer = 0;
     let sweepTimer = 0;
     let lastGestureAt = 0;
+    let lastDeepScanAt = 0;
     let menuIds = [];
 
     /* ---------------- 配置 ---------------- */
@@ -129,6 +131,10 @@
                     result.push(el);
                 }
             }
+            // 关键：根节点自身的 shadowRoot 也要进去
+            if (node.shadowRoot) {
+                walk(node.shadowRoot, depth + 1);
+            }
             for (const el of node.querySelectorAll('*')) {
                 if (el.shadowRoot) {
                     walk(el.shadowRoot, depth + 1);
@@ -169,6 +175,13 @@
         }
         for (const player of document.querySelectorAll(PLAYER_SELECTOR)) {
             for (const video of deepQueryAll(player, 'video')) {
+                found.add(video);
+            }
+        }
+        // 兜底：结构变化导致上面都没找到时，全文档深扫一次（限频，避免拖慢页面）
+        if (found.size === 0 && Date.now() - lastDeepScanAt > DEEP_SCAN_INTERVAL_MS) {
+            lastDeepScanAt = Date.now();
+            for (const video of deepQueryAll(document, 'video', 5)) {
                 found.add(video);
             }
         }
