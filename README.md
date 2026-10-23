@@ -12,7 +12,7 @@
 | [Reddit视频焦点发声](./reddit-focus-unmute) | 滚动时焦点视频自动取消静音 / 其余视频自动静音，保证单一发声 | [安装](https://raw.githubusercontent.com/Godwin9527/9527-script-personal/main/reddit-focus-unmute/reddit-focus-unmute.user.js) |
 | [数字键快捷键拦截](./youtube-block-number-seek) | 按网站名单拦截数字键，阻止网页原生快捷键抢占按键 | [安装](https://raw.githubusercontent.com/Godwin9527/9527-script-personal/main/youtube-block-number-seek/youtube-block-number-seek.user.js) |
 | [YouTube滚动小窗](./youtube-scroll-miniplayer) | 滚动评论区时自动悬浮播放器 / 可移动开关 / 可拖动缩放 / 记忆位置大小 | [安装](https://raw.githubusercontent.com/Godwin9527/9527-script-personal/main/youtube-scroll-miniplayer/youtube-scroll-miniplayer.user.js) |
-| [小黑盒帖子页加宽](./xiaoheihe-hide-sidebar) | 隐藏右侧「热门社区 / 相关资讯」整列，帖子正文自动铺满窗口宽度 | [安装](https://raw.githubusercontent.com/Godwin9527/9527-script-personal/main/xiaoheihe-hide-sidebar/xiaoheihe-hide-sidebar.user.js) |
+| [小黑盒帖子页加宽](./xiaoheihe-hide-sidebar) | 隐藏右侧「热门社区 / 相关资讯」整列，帖子页 / 社区首页 / 社区详情页正文自动铺满窗口宽度 | [安装](https://raw.githubusercontent.com/Godwin9527/9527-script-personal/main/xiaoheihe-hide-sidebar/xiaoheihe-hide-sidebar.user.js) |
 
 每个脚本独立存放在自己的文件夹下,详见各文件夹内的 README。
 

@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         9527小黑盒帖子页加宽
 // @namespace    https://github.com/Godwin9527
-// @version      1.0.0
-// @description  隐藏小黑盒帖子页右侧「热门社区 / 相关资讯」整列,帖子正文自动铺满窗口宽度,无需手动设置数值
+// @version      1.1.0
+// @description  隐藏小黑盒右侧「热门社区 / 相关资讯」整列,帖子页、社区首页、社区详情页的正文自动铺满窗口宽度,无需手动设置数值
 // @author       Godwin9527
 // @run-at       document-start
 // @match        *://www.xiaoheihe.cn/*
@@ -19,10 +19,17 @@
 // ==/UserScript==
 
 // 说明:
-// 1. 帖子页布局是横向 flex 两列: 左列 .list(flex:1) 是正文, 右列 .cpt-right-side(固定 356px) 是热门社区/相关资讯。
-//    右列固定宽度、左列弹性宽度, 所以只要把右列 display:none, 正文会自动吃掉腾出来的空间, 不需要手写左列宽度。
-// 2. 外层 #page-bbs-link 把总宽度锁死在 1032px, main 又锁死在 1300px, 两处都要解除, 正文才能真正跟着窗口走。
-// 3. 超宽屏(>1600px)下正文会拉得过开、长行难读, 所以留了 MAX_WIDTH 上限并居中; 普通窗口下正文始终铺满, 用不到这个值。
+// 1. 小黑盒这几类页面共用同一套横向 flex 布局: 左列正文(弹性) + 右列 .cpt-right-side(固定 356px)。
+//    右列固定、左列弹性, 所以把右列 display:none 掉, 正文会自动吃掉腾出来的空间。
+//    三类页面实测结构:
+//      - 帖子页   /app/bbs/link/<id>    根容器 #page-bbs-link      左列 .content > .list
+//      - 社区首页 /app/bbs/home         根容器 #page-bbs-community 左列 .content > .list
+//      - 社区详情 /app/topic/link/<id>  根容器 #page-topic-link    左列 .topic-link__content > .topic-link__main
+// 2. 三处宽度限制都要解除, 正文才能真正跟着窗口走:
+//      - 根容器 [id^="page-"] 锁死 1032px
+//      - 外层 main 锁死 1300px
+//      - 社区首页 / 社区详情的左列还额外被限制在 660px(帖子页没有这条限制)
+// 3. 超宽屏(>1600px)下正文会拉得过开、长行难读, 所以留了 MAX_WIDTH 上限并居中; 普通窗口下正文始终铺满。
 
 (() => {
     'use strict';
@@ -40,30 +47,36 @@
 
     const CSS = `
         /* 1. 隐藏右侧整列(热门社区 / 相关资讯 / 侧边推广) */
-        html.${ROOT_CLASS} #page-bbs-link [class*="cpt-right-side"] {
+        html.${ROOT_CLASS} [id^="page-"] [class*="cpt-right-side"] {
             display: none !important;
         }
 
-        /* 2. 外层 main 原本锁死 1300px, 解除后才能跟着窗口变化 */
-        html.${ROOT_CLASS} main:has(#page-bbs-link) {
-            max-width: none !important;
-            width: 100% !important;
-        }
-
-        /* 3. 帖子容器原本锁死 1032px, 改为铺满可用宽度并居中 */
-        html.${ROOT_CLASS} #page-bbs-link {
+        /* 2. 页面根容器原本锁死 1032px, 解除后才能跟着窗口变化 */
+        html.${ROOT_CLASS} [id^="page-"] {
+            box-sizing: border-box !important;
             width: 100% !important;
             max-width: ${MAX_WIDTH}px !important;
             margin-left: auto !important;
             margin-right: auto !important;
+            /* 社区列表最后一张卡片会多出 16px 外边距, 裁掉避免出现横向滚动条 */
+            overflow-x: clip !important;
         }
 
-        /* 4. 左列吃掉腾出来的空间 */
-        html.${ROOT_CLASS} #page-bbs-link > .content > .list {
+        /* 3. 外层 main 原本锁死 1300px, 同步解除 */
+        html.${ROOT_CLASS} main:has([id^="page-"]) {
+            box-sizing: border-box !important;
+            max-width: none !important;
+            width: 100% !important;
+        }
+
+        /* 4. 左列原本被限制在 660px, 解除后自动吃掉腾出来的空间 */
+        html.${ROOT_CLASS} [id^="page-"] .content > .list,
+        html.${ROOT_CLASS} [id^="page-"] .topic-link__content > .topic-link__main {
+            box-sizing: border-box !important;
             max-width: none !important;
         }
 
-        /* 5. 正文图片跟随新宽度, 避免固定宽度把页面撑出横向滚动条 */
+        /* 5. 帖子正文图片跟随新宽度, 避免固定宽度把页面撑出横向滚动条 */
         html.${ROOT_CLASS} #page-bbs-link .hb-bbs-link img {
             max-width: 100% !important;
             height: auto !important;
