@@ -2,9 +2,9 @@
 // @name         9527字幕悬浮球助手
 // @name:zh-CN   9527字幕悬浮球助手
 // @namespace    https://github.com/Godwin9527
-// @version      1.5.0
-// @description  Add subtitle loading, appearance controls, online search, hotkeys, and a draggable floating-ball panel for MissAV and Jable.
-// @description:zh-CN 为 MissAV 与 Jable 提供本地字幕加载、字幕样式调节、在线字幕搜索、快捷键控制与可拖拽字幕悬浮球面板，兼容 Safari Userscripts 与 Tampermonkey。
+// @version      1.6.0
+// @description  Subtitle loader for MissAV and Jable: auto search & load, page-level subtitle overlay, style tweaks, draggable floating ball.
+// @description:zh-CN 为 MissAV 与 Jable 提供本地字幕加载、在线字幕自动搜索与加载、页面级字幕浮层（不挂在播放器容器内）、字幕样式调节与可拖拽悬浮球面板。
 // @author       9527
 // @match        *://missav123.com/*
 // @match        *://missav.ws/*
@@ -43,23 +43,6 @@
         '.video-js video',
         '.jwplayer video',
         'video'
-    ];
-    const VIDEO_CONTAINER_SELECTORS = [
-        '.plyr__video-wrapper',
-        '.player-container',
-        '#player-container',
-        '.video-js',
-        '.jwplayer',
-        '.jw-wrapper',
-        '.video-img-box',
-        '.video-player'
-    ];
-    const VIDEO_ANCESTOR_SELECTORS = [
-        ...VIDEO_CONTAINER_SELECTORS,
-        '.plyr',
-        '.player',
-        '[class*="video-player"]',
-        '[class*="player"]'
     ];
 
     // --- Styles ---
@@ -170,23 +153,30 @@
             grid-template-columns: repeat(3, minmax(0, 1fr));
             gap: 6px;
         }
+        /* 页面级浮层：不依赖播放器容器，坐标由 JS 按 video 的实际位置计算。
+           这样不会被播放器的 overflow / transform / 层级裁掉或盖住。 */
         .custom-subtitle {
-            position: absolute;
-            /* bottom: 15%; */ /* REMOVED - Now controlled by JS */
-            left: 50%;
+            position: fixed;
+            left: 0;
+            top: 0;
+            right: auto;
+            bottom: auto;
             transform: translateX(-50%);
-            color: white;
+            color: #ffffff;
             font-size: 26px;
             font-weight: bold;
-            text-shadow: 2px 2px 5px rgba(0,0,0,0.9);
-            background: rgba(0,0,0,0.0);
-            padding: 5px 10px;
-            border-radius: 5px;
-            max-width: 85%;
+            line-height: 1.3;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.95), 0 0 3px rgba(0, 0, 0, 0.9);
+            background: transparent;
+            padding: 4px 10px;
+            border-radius: 6px;
+            max-width: 96vw;
             text-align: center;
-            transition: opacity 0.3s, bottom 0.2s ease-out; /* Add transition for bottom */
-            z-index: 10000;
+            white-space: pre-line;
+            box-sizing: border-box;
+            z-index: 2147483000;
             pointer-events: none;
+            will-change: left, top;
         }
         .subtitle-list {
             position: fixed;
@@ -335,10 +325,18 @@
     let autoLoadAttemptedFor = '';    // 已自动加载过的番号
     let autoLoadSuppressed = false;   // 用户手动清空后，本页不再自动加载
 
+    // --- 字幕浮层状态 ---
+    let subtitleText = '';            // 当前应显示的文本
+    let subtitleNoticeText = '';      // 加载后的短暂提示（用于确认浮层真的在工作）
+    let subtitleNoticeUntil = 0;
+    let lastActiveVideoBindAt = 0;
+    let subtitleLoadedAt = 0;         // 本次字幕加载时间，用于时间轴不匹配提醒
+    let cueEverMatched = false;       // 是否命中过至少一条字幕
+    let timelineWarned = false;
+
     // --- UI Elements ---
     let controlPanel;
     let subtitleElement;
-    let videoContainer;
     let subtitleList = null;
     let showControlsButton = null;
 
@@ -570,6 +568,13 @@
         applyFloatingButtonPosition();
         positionControlPanel();
         positionSubtitleList();
+        applySubtitlePresentation();
+    }
+
+    /** 进出全屏时浮层的宿主会变，需要重新挂载并按新坐标系定位。 */
+    function handleFullscreenChange() {
+        ensureSubtitleMounted();
+        applySubtitlePresentation();
     }
 
     function openInNewTab(url) {
@@ -640,44 +645,6 @@
         return '';
     }
 
-    function findPageVideo(root = document) {
-        for (const selector of VIDEO_QUERY_SELECTORS) {
-            const candidate = root.querySelector(selector);
-            if (candidate instanceof HTMLVideoElement) {
-                return candidate;
-            }
-        }
-
-        const fallbackVideo = root.querySelector('video');
-        return fallbackVideo instanceof HTMLVideoElement ? fallbackVideo : null;
-    }
-
-    function findVideoContainer(video = null) {
-        const currentVideo = video || findVideoElement() || findPageVideo();
-
-        if (currentVideo) {
-            for (const selector of VIDEO_ANCESTOR_SELECTORS) {
-                const candidate = currentVideo.closest(selector);
-                if (candidate && candidate !== document.body && candidate !== document.documentElement) {
-                    return candidate;
-                }
-            }
-
-            if (currentVideo.parentElement) {
-                return currentVideo.parentElement;
-            }
-        }
-
-        for (const selector of VIDEO_CONTAINER_SELECTORS) {
-            const candidate = document.querySelector(selector);
-            if (candidate) {
-                return candidate;
-            }
-        }
-
-        return null;
-    }
-
     function scoreVideoElement(video) {
         if (!video) return -Infinity;
 
@@ -700,6 +667,7 @@
         return (isLikelyPlayer ? 1_000_000 : 0)
             + (isVisible ? 100_000 : 0)
             + (isPlaying ? 10_000 : 0)
+            + (video.currentTime > 0 ? 5_000 : 0)
             + (hasSource ? 1_000 : 0)
             + Math.round(rect.width * rect.height);
     }
@@ -898,14 +866,146 @@
         injectPlayerBridge();
     }
 
+    /** 全屏元素（进入全屏后只有它的子树会被渲染）。 */
+    function getFullscreenElement() {
+        return document.fullscreenElement || document.webkitFullscreenElement || null;
+    }
+
+    /** 字幕浮层的宿主：平时挂在 body，全屏时挂进全屏元素，否则全屏下看不到。 */
+    function getSubtitleHost() {
+        return getFullscreenElement() || document.body || document.documentElement || null;
+    }
+
+    /** 取当前真正在用的 video：播放中的优先，其次按可见面积打分。 */
+    function getActiveVideo() {
+        const videos = Array.from(document.querySelectorAll('video')).filter((v) => v.isConnected);
+        if (!videos.length) {
+            return videoElement && videoElement.isConnected ? videoElement : null;
+        }
+
+        const playing = videos.filter((v) => !v.paused && !v.ended && v.readyState > 0);
+        const pool = playing.length ? playing : videos;
+
+        let best = pool[0];
+        let bestScore = -Infinity;
+        for (const video of pool) {
+            const score = scoreVideoElement(video) + (video === videoElement ? 5000 : 0);
+            if (score > bestScore) {
+                bestScore = score;
+                best = video;
+            }
+        }
+        return best;
+    }
+
+    function formatClock(seconds) {
+        if (!Number.isFinite(seconds) || seconds < 0) return '--:--';
+        const total = Math.floor(seconds);
+        const mm = String(Math.floor(total / 60)).padStart(2, '0');
+        const ss = String(total % 60).padStart(2, '0');
+        return `${mm}:${ss}`;
+    }
+
+    /**
+     * 按 video 的实际屏幕位置算出浮层坐标。
+     * 视频不在视野内、尺寸过小时返回 null（此时不显示字幕）。
+     */
+    function computeSubtitleGeometry() {
+        const video = getActiveVideo();
+        if (!video) return null;
+
+        const rect = video.getBoundingClientRect();
+        if (!(rect.width >= 120 && rect.height >= 80)) return null;
+
+        const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+        const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+        const visibleWidth = Math.min(rect.right, viewportWidth) - Math.max(rect.left, 0);
+        const visibleHeight = Math.min(rect.bottom, viewportHeight) - Math.max(rect.top, 0);
+        if (visibleWidth < 120 || visibleHeight < 60) return null;
+
+        const host = getSubtitleHost();
+        const inFullscreen = Boolean(getFullscreenElement());
+        const hostRect = (inFullscreen && host && host.getBoundingClientRect)
+            ? host.getBoundingClientRect()
+            : { left: 0, top: 0 };
+
+        const percent = clamp(
+            Number.isFinite(subtitleVerticalPositionPercent) ? subtitleVerticalPositionPercent : 15,
+            0,
+            90
+        );
+
+        // 字幕中心点：视频水平居中，垂直按「距底部百分比」换算
+        const centerX = rect.left + rect.width / 2 - hostRect.left;
+        const centerY = rect.bottom - rect.height * (percent / 100) - hostRect.top;
+
+        const width = Math.max(160, Math.min(rect.width * 0.94, viewportWidth - 24));
+
+        return {
+            position: inFullscreen ? 'absolute' : 'fixed',
+            left: centerX,
+            top: clamp(centerY, Math.max(0, rect.top - hostRect.top) + 12,
+                Math.max(12, rect.bottom - hostRect.top - 12)),
+            width
+        };
+    }
+
+    /** 把文本、位置、样式一次性刷到浮层上。 */
+    function applySubtitlePresentation() {
+        if (!subtitleElement) return;
+
+        const text = subtitleText || '';
+        if (!text) {
+            subtitleElement.style.display = 'none';
+            return;
+        }
+
+        const geometry = computeSubtitleGeometry();
+        if (!geometry) {
+            subtitleElement.style.display = 'none';
+            return;
+        }
+
+        if (subtitleElement.style.display !== 'block') {
+            subtitleElement.style.display = 'block';
+        }
+        subtitleElement.style.position = geometry.position;
+        subtitleElement.style.left = `${Math.round(geometry.left)}px`;
+        subtitleElement.style.top = `${Math.round(geometry.top)}px`;
+        subtitleElement.style.width = `${Math.round(geometry.width)}px`;
+    }
+
     function setSubtitleText(text) {
         if (!subtitleElement) return;
 
         const normalizedText = typeof text === 'string' ? text : '';
-        if (subtitleElement.textContent !== normalizedText) {
+        if (normalizedText !== subtitleText) {
+            subtitleText = normalizedText;
             subtitleElement.textContent = normalizedText;
         }
-        subtitleElement.style.display = normalizedText ? 'block' : 'none';
+        applySubtitlePresentation();
+    }
+
+    /** 加载完成后短暂显示一条状态，用来确认浮层本身是否渲染成功。 */
+    function setSubtitleNotice(text, duration = 2600) {
+        subtitleNoticeText = text || '';
+        subtitleNoticeUntil = subtitleNoticeText ? Date.now() + duration : 0;
+    }
+
+    function getSubtitleNotice() {
+        if (!subtitleNoticeText) return '';
+        if (Date.now() > subtitleNoticeUntil) {
+            subtitleNoticeText = '';
+            return '';
+        }
+        return subtitleNoticeText;
+    }
+
+    /** 每次换成新字幕时重置时间轴诊断状态。 */
+    function markSubtitleLoaded() {
+        subtitleLoadedAt = Date.now();
+        cueEverMatched = false;
+        timelineWarned = false;
     }
 
     function positionSubtitleList() {
@@ -965,11 +1065,16 @@
 
     /** 取当前播放时间：优先真实 video 元素，桥接状态作为兜底且要求足够新。 */
     function getPlaybackTime() {
-        const video = (videoElement && videoElement.isConnected)
-            ? videoElement
-            : findVideoElement();
+        const video = getActiveVideo();
 
         if (video && Number.isFinite(video.currentTime) && video.readyState > 0) {
+            // 绑定到别的 video（站点多个 video / 重建播放器）时顺手纠正一次
+            if (video !== videoElement && Date.now() - lastActiveVideoBindAt > 1500) {
+                lastActiveVideoBindAt = Date.now();
+                if (!videoElement || !videoElement.isConnected || videoElement.paused) {
+                    bindVideoElement(video);
+                }
+            }
             return video.currentTime;
         }
 
@@ -980,21 +1085,16 @@
         return video && Number.isFinite(video.currentTime) ? video.currentTime : NaN;
     }
 
-    /** 保证字幕节点始终挂在当前视频容器里（站点重建播放器后原节点会掉出来）。 */
+    /** 保证字幕浮层挂在正确宿主上（body，或全屏时的全屏元素）。 */
     function ensureSubtitleMounted() {
         if (!subtitleElement) return false;
 
-        // 还在文档里就不动它，避免容器选择器抖动导致字幕被反复搬移
-        if (subtitleElement.isConnected) return true;
+        const host = getSubtitleHost();
+        if (!host) return false;
 
-        const container = findVideoContainer() || (videoElement && videoElement.parentElement);
-        if (!container) return false;
-
-        if (getComputedStyle(container).position === 'static') {
-            container.style.position = 'relative';
+        if (subtitleElement.parentElement !== host) {
+            host.appendChild(subtitleElement);
         }
-
-        container.appendChild(subtitleElement);
         return true;
     }
 
@@ -1004,11 +1104,28 @@
 
         let tick = 0;
         subtitleRenderTimer = setInterval(() => {
-            if (!subtitles.length) return;
-            if (tick++ % 10 === 0) {
-                ensureSubtitleMounted();
+            tick += 1;
+            // 每 1 秒校正一次宿主（应对全屏切换、body 重建）
+            if (tick % 10 === 0) ensureSubtitleMounted();
+
+            if (!subtitles.length) {
+                if (subtitleText) setSubtitleText('');
+                return;
             }
+
             updateSubtitle();
+
+            // 跟随页面滚动 / 窗口缩放 / 播放器布局变化重新定位
+            if (subtitleText && tick % 3 === 0) applySubtitlePresentation();
+
+            // 字幕已加载、视频在播、但一直没命中过任何一条：多半是时间轴不匹配
+            if (!cueEverMatched && !timelineWarned && Date.now() - subtitleLoadedAt > 25000) {
+                const activeVideo = getActiveVideo();
+                if (activeVideo && !activeVideo.paused && activeVideo.currentTime > 8) {
+                    timelineWarned = true;
+                    showToast('字幕一直没对上，可能是时间轴不匹配。可打开面板调整「字幕偏移」', 5000);
+                }
+            }
         }, 100);
     }
 
@@ -1049,13 +1166,11 @@
         return true;
     }
 
-    /** Updates the subtitle element's vertical position style. */
+    /** 记录垂直位置（距视频底部百分比），实际坐标在渲染时按 video 尺寸换算。 */
     function updateSubtitlePositionStyle(positionPercent) {
-        if (subtitleElement && typeof positionPercent === 'number') {
-            // Ensure position is within reasonable bounds (e.g., 0% to 90%)
-            const clampedPosition = Math.max(0, Math.min(90, positionPercent));
-            subtitleElement.style.bottom = `${clampedPosition}%`;
-        }
+        if (typeof positionPercent !== 'number' || !Number.isFinite(positionPercent)) return;
+        subtitleVerticalPositionPercent = clamp(positionPercent, 0, 90);
+        applySubtitlePresentation();
     }
 
     function updateSubtitleAppearanceStyle() {
@@ -1230,34 +1345,26 @@
         }
     }
 
-    /** 创建字幕节点，挂载交给 ensureSubtitleMounted 持续维护。 */
+    /** 创建字幕浮层（挂在 body 上，位置由渲染循环按 video 坐标实时计算）。 */
     function setupSubtitleDisplay() {
         subtitleElement = document.createElement('div');
         subtitleElement.className = 'custom-subtitle';
         subtitleElement.style.display = 'none';
-        updateSubtitlePositionStyle(subtitleVerticalPositionPercent);
         updateSubtitleAppearanceStyle();
+        updateSubtitlePositionStyle(subtitleVerticalPositionPercent);
 
         ensureSubtitleMounted();
 
-        const mountTimer = setInterval(() => {
-            videoContainer = findVideoContainer();
-            if (videoContainer && subtitleElement.isConnected) {
-                clearInterval(mountTimer);
-                return;
-            }
+        // 反复确认挂载状态：body 被站点重建、全屏切换时都能自动接回
+        setInterval(() => {
             ensureSubtitleMounted();
-        }, 500);
+        }, 1000);
 
         setTimeout(() => {
-            clearInterval(mountTimer);
-            if (!subtitleElement.isConnected) {
-                console.error('9527字幕悬浮球: Failed to find video container after 10 seconds.');
-                if (findVideoElement()) {
-                    showToast('错误：无法找到视频容器挂载字幕', 5000);
-                }
+            if (!getActiveVideo()) {
+                console.warn('9527字幕悬浮球: 暂未找到 video 元素（播放器可能还没加载）');
             }
-        }, 10000);
+        }, 8000);
     }
 
     /** Handles the selection of a local SRT file. */
@@ -1279,6 +1386,8 @@
 
             ensureSubtitleMounted();
             startSubtitleRenderLoop();
+            markSubtitleLoaded();
+            setSubtitleNotice(`字幕已就绪 · ${parsed.length} 条 · ${formatClock(getActiveVideo()?.currentTime)}`);
             updateSubtitle();
             if (subtitleList) closeSubtitleList();
             showToast('本地字幕加载成功');
@@ -1358,7 +1467,7 @@
         try {
             const currentTime = getPlaybackTime();
             if (!Number.isFinite(currentTime)) {
-                setSubtitleText('');
+                setSubtitleText(getSubtitleNotice());
                 return;
             }
 
@@ -1372,7 +1481,17 @@
                 if (cue.start > currentTime) break; // 字幕按时间升序，越界即可停
             }
 
-            setSubtitleText(activeCue ? activeCue.text : '');
+            // 已经正常出过字幕，就不需要再提示了
+            if (activeCue) {
+                cueEverMatched = true;
+                if (subtitleNoticeText) {
+                    subtitleNoticeText = '';
+                    subtitleNoticeUntil = 0;
+                }
+            }
+
+            // 没有命中的条目时，加载后的几秒内显示状态提示（确认浮层在工作）
+            setSubtitleText(activeCue ? activeCue.text : getSubtitleNotice());
         } catch (e) {
             console.error("Error updating subtitle:", e);
         }
@@ -1689,6 +1808,13 @@
             // 关键：加载完立刻挂载并渲染一次，不再等 timeupdate
             ensureSubtitleMounted();
             startSubtitleRenderLoop();
+            markSubtitleLoaded();
+
+            const activeVideo = getActiveVideo();
+            setSubtitleNotice(activeVideo
+                ? `字幕已就绪 · ${parsed.length} 条 · ${formatClock(activeVideo.currentTime)}`
+                : `字幕已就绪 · ${parsed.length} 条 · 未找到播放器`);
+
             updateSubtitle();
 
             if (!silent) {
@@ -1713,6 +1839,7 @@
         currentSubtitleUrl = '';
         currentSubtitleName = '';
         autoLoadSuppressed = true; // 用户主动清空后，本页不再自动加载
+        setSubtitleNotice('');
         setSubtitleText('');
         showToast('字幕已清除', 1500);
     }
@@ -1816,6 +1943,8 @@
         initPlayer();
         startSubtitleRenderLoop();
         setInterval(maybeAutoLoadSubtitle, 3000); // 兜底：SPA 换集 / 视频晚到
+        document.addEventListener('fullscreenchange', handleFullscreenChange);
+        document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
         console.log("9527字幕悬浮球: Initialization complete.");
     }
 
