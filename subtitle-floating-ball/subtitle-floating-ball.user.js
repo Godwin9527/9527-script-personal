@@ -2,7 +2,7 @@
 // @name         9527字幕悬浮球助手
 // @name:zh-CN   9527字幕悬浮球助手
 // @namespace    https://github.com/Godwin9527
-// @version      1.4.1
+// @version      1.5.0
 // @description  Add subtitle loading, appearance controls, online search, hotkeys, and a draggable floating-ball panel for MissAV and Jable.
 // @description:zh-CN 为 MissAV 与 Jable 提供本地字幕加载、字幕样式调节、在线字幕搜索、快捷键控制与可拖拽字幕悬浮球面板，兼容 Safari Userscripts 与 Tampermonkey。
 // @author       9527
@@ -258,6 +258,28 @@
             transform: none;
             cursor: grabbing;
         }
+        .custom-control-panel .auto-load-row {
+            grid-column: 1 / -1;
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            padding: 2px 0 0;
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 11px;
+            font-weight: 500;
+            cursor: pointer;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        .custom-control-panel .auto-load-row input[type="checkbox"] {
+            width: 14px;
+            height: 14px;
+            margin: 0;
+            padding: 0;
+            flex: 0 0 auto;
+            accent-color: #4a90e2;
+            cursor: pointer;
+        }
         .custom-control-panel button.full-width {
             grid-column: 1 / -1;
         }
@@ -280,21 +302,17 @@
     `);
 
     // --- Global Variables ---
-    let accelerationRate = parseFloat(localStorage.getItem('missavAccelerationRate')) || 3;
-    let skipTime = parseFloat(localStorage.getItem('missavSkipTime')) || 5;
     let subtitleOffset = parseFloat(localStorage.getItem('missavSubtitleOffset')) || 0;
     let subtitleVerticalPositionPercent = parseFloat(localStorage.getItem('missavSubtitlePosition')) || 15; // Default 15% from bottom
     let subtitleFontSize = parseFloat(localStorage.getItem('missavSubtitleSize')) || 26;
     let subtitleColor = normalizeHexColor(localStorage.getItem('missavSubtitleColor')) || '#ffffff';
-    let isAccelerating = false;
+    let autoLoadEnabled = localStorage.getItem('missavAutoLoadSubtitle') !== '0'; // 默认开启
     let floatingButtonPosition = null;
     let floatingButtonDragState = null;
     let suppressFloatingButtonClick = false;
     let videoElement = null;
     let playerMonitorInterval = null;
     let hasShownPlayerReadyToast = false;
-    let subtitleTrack = null;
-    let subtitleTrackOwner = null;
     let playerBridgeState = {
         currentTime: 0,
         paused: true,
@@ -302,14 +320,20 @@
         seeking: false,
         reason: ''
     };
+    let playerBridgeUpdatedAt = 0;
     let isBridgeActive = false;
     let subtitles = [];
     let originalSubtitleText = '';
-    let shortcutKeys = {
-        accelerate: localStorage.getItem('missavAccelerateKey') || 'z',
-        forward: localStorage.getItem('missavForwardKey') || 'x',
-        backward: localStorage.getItem('missavBackwardKey') || 'c'
-    };
+
+    // --- Subtitle source / auto-load state ---
+    let lastSearchResults = [];       // 当前番号可用的 SRT 候选列表
+    let lastSearchVideoId = '';       // lastSearchResults 对应的番号
+    let currentSubtitleUrl = '';      // 正在使用的字幕地址
+    let currentSubtitleName = '';     // 正在使用的字幕名称
+    let loadSeq = 0;                  // 加载请求序号，用于丢弃过期响应
+    let subtitleRenderTimer = null;   // 字幕渲染循环
+    let autoLoadAttemptedFor = '';    // 已自动加载过的番号
+    let autoLoadSuppressed = false;   // 用户手动清空后，本页不再自动加载
 
     // --- UI Elements ---
     let controlPanel;
@@ -858,6 +882,7 @@
             reason: typeof detail.reason === 'string' ? detail.reason : ''
         };
         isBridgeActive = true;
+        playerBridgeUpdatedAt = Date.now();
 
         const currentVideo = findVideoElement();
         if (currentVideo) {
@@ -873,12 +898,6 @@
         injectPlayerBridge();
     }
 
-    function getCueConstructor() {
-        if (typeof VTTCue !== 'undefined') return VTTCue;
-        if (typeof TextTrackCue !== 'undefined') return TextTrackCue;
-        return null;
-    }
-
     function setSubtitleText(text) {
         if (!subtitleElement) return;
 
@@ -887,21 +906,6 @@
             subtitleElement.textContent = normalizedText;
         }
         subtitleElement.style.display = normalizedText ? 'block' : 'none';
-    }
-
-    function handleTrackCueChange() {
-        if (!subtitleTrack) {
-            setSubtitleText('');
-            return;
-        }
-
-        const activeText = Array
-            .from(subtitleTrack.activeCues || [])
-            .map((cue) => cue.text)
-            .filter(Boolean)
-            .join('\n');
-
-        setSubtitleText(activeText);
     }
 
     function positionSubtitleList() {
@@ -947,67 +951,6 @@
         subtitleList.style.bottom = 'auto';
     }
 
-    function clearSubtitleTrack() {
-        if (!subtitleTrack) return;
-
-        try {
-            subtitleTrack.removeEventListener('cuechange', handleTrackCueChange);
-            Array.from(subtitleTrack.cues || []).forEach((cue) => {
-                try {
-                    subtitleTrack.removeCue(cue);
-                } catch (error) {
-                    console.warn('9527字幕悬浮球: Failed to remove cue.', error);
-                }
-            });
-        } catch (error) {
-            console.warn('9527字幕悬浮球: Failed to clear subtitle track.', error);
-        }
-
-        subtitleTrack = null;
-        subtitleTrackOwner = null;
-        setSubtitleText('');
-    }
-
-    function syncSubtitleTrack() {
-        if (!videoElement || !subtitles.length) {
-            clearSubtitleTrack();
-            return false;
-        }
-
-        const CueConstructor = getCueConstructor();
-        if (!CueConstructor) {
-            console.warn('9527字幕悬浮球: VTTCue/TextTrackCue is not available, falling back to manual sync.');
-            return false;
-        }
-
-        if (!subtitleTrack || subtitleTrackOwner !== videoElement) {
-            clearSubtitleTrack();
-            subtitleTrack = videoElement.addTextTrack('subtitles', '9527 Subtitle', 'zh');
-            subtitleTrack.mode = 'hidden';
-            subtitleTrack.addEventListener('cuechange', handleTrackCueChange);
-            subtitleTrackOwner = videoElement;
-        } else {
-            Array.from(subtitleTrack.cues || []).forEach((cue) => {
-                try {
-                    subtitleTrack.removeCue(cue);
-                } catch (error) {
-                    console.warn('9527字幕悬浮球: Failed to reset cue.', error);
-                }
-            });
-        }
-
-        subtitles.forEach((sub) => {
-            const startTime = Math.max(0, sub.start);
-            const endTime = Math.max(startTime + 0.01, sub.end);
-            const cue = new CueConstructor(startTime, endTime, sub.text);
-            subtitleTrack.addCue(cue);
-        });
-
-        subtitleTrack.mode = 'hidden';
-        handleTrackCueChange();
-        return true;
-    }
-
     function findVideoElement() {
         const videos = Array.from(document.querySelectorAll('video'));
         if (videos.length === 0) return null;
@@ -1017,7 +960,56 @@
     }
 
     function handleVideoTimeUpdate() {
-        requestAnimationFrame(updateSubtitle);
+        updateSubtitle();
+    }
+
+    /** 取当前播放时间：优先真实 video 元素，桥接状态作为兜底且要求足够新。 */
+    function getPlaybackTime() {
+        const video = (videoElement && videoElement.isConnected)
+            ? videoElement
+            : findVideoElement();
+
+        if (video && Number.isFinite(video.currentTime) && video.readyState > 0) {
+            return video.currentTime;
+        }
+
+        if (isBridgeActive && Date.now() - playerBridgeUpdatedAt < 3000) {
+            return playerBridgeState.currentTime;
+        }
+
+        return video && Number.isFinite(video.currentTime) ? video.currentTime : NaN;
+    }
+
+    /** 保证字幕节点始终挂在当前视频容器里（站点重建播放器后原节点会掉出来）。 */
+    function ensureSubtitleMounted() {
+        if (!subtitleElement) return false;
+
+        // 还在文档里就不动它，避免容器选择器抖动导致字幕被反复搬移
+        if (subtitleElement.isConnected) return true;
+
+        const container = findVideoContainer() || (videoElement && videoElement.parentElement);
+        if (!container) return false;
+
+        if (getComputedStyle(container).position === 'static') {
+            container.style.position = 'relative';
+        }
+
+        container.appendChild(subtitleElement);
+        return true;
+    }
+
+    /** 独立渲染循环：不依赖 timeupdate，暂停或视频未就绪时也能出字幕。 */
+    function startSubtitleRenderLoop() {
+        if (subtitleRenderTimer) return;
+
+        let tick = 0;
+        subtitleRenderTimer = setInterval(() => {
+            if (!subtitles.length) return;
+            if (tick++ % 10 === 0) {
+                ensureSubtitleMounted();
+            }
+            updateSubtitle();
+        }, 100);
     }
 
     function bindVideoElement(video) {
@@ -1028,6 +1020,7 @@
             videoElement.removeEventListener('seeking', handleVideoTimeUpdate);
             videoElement.removeEventListener('seeked', handleVideoTimeUpdate);
             videoElement.removeEventListener('loadedmetadata', handleVideoTimeUpdate);
+            videoElement.removeEventListener('emptied', handleVideoTimeUpdate);
         }
 
         if (videoElement === video) {
@@ -1039,14 +1032,19 @@
         videoElement.addEventListener('seeking', handleVideoTimeUpdate);
         videoElement.addEventListener('seeked', handleVideoTimeUpdate);
         videoElement.addEventListener('loadedmetadata', handleVideoTimeUpdate);
+        videoElement.addEventListener('emptied', handleVideoTimeUpdate);
 
         console.log('9527字幕悬浮球: HTML5 video element bound.', videoElement);
-        requestAnimationFrame(updateSubtitle);
+        ensureSubtitleMounted();
+        startSubtitleRenderLoop();
+        updateSubtitle();
 
         if (!hasShownPlayerReadyToast) {
             hasShownPlayerReadyToast = true;
             showToast('播放器初始化完成', 1500);
         }
+
+        setTimeout(maybeAutoLoadSubtitle, 1500);
 
         return true;
     }
@@ -1095,9 +1093,9 @@
             input.value = value;
             input.setAttribute('data-key-name', keyName);
             if (inputType === 'number') {
-                input.min = options.min ?? ''; // Set min if provided
-                input.max = options.max ?? ''; // Set max if provided
-                input.step = options.step ?? 'any'; // Set step
+                input.min = options.min ?? '';
+                input.max = options.max ?? '';
+                input.step = options.step ?? 'any';
             }
             if (inputType === 'color') {
                 input.value = normalizeHexColor(value) || '#ffffff';
@@ -1107,67 +1105,61 @@
             return group;
         };
 
-        // Shortcut Key Inputs
+        // 字幕显示设置
         controlPanel.append(
-            createInputGroup('加速键', 'text', shortcutKeys.accelerate, (e) => {
-                shortcutKeys.accelerate = e.target.value.toLowerCase();
-            }, 'accelerate'),
-            createInputGroup('快进键', 'text', shortcutKeys.forward, (e) => {
-                shortcutKeys.forward = e.target.value.toLowerCase();
-            }, 'forward'),
-            createInputGroup('倒退键', 'text', shortcutKeys.backward, (e) => {
-                shortcutKeys.backward = e.target.value.toLowerCase();
-            }, 'backward')
-        );
-
-        // Playback & Subtitle Settings Inputs
-        controlPanel.append(
-            createInputGroup('加速倍率', 'number', accelerationRate, (e) => {
-                const val = parseFloat(e.target.value);
-                if (!isNaN(val) && val > 0) accelerationRate = val;
-            }, 'accelerationRate', { min: 0.1, step: 0.1 }), // Added min/step
-            createInputGroup('步进秒数', 'number', skipTime, (e) => {
-                const val = parseFloat(e.target.value);
-                if (!isNaN(val) && val > 0) skipTime = val;
-            }, 'skipTime', { min: 0.1, step: 0.1 }), // Added min/step
             createInputGroup('字幕偏移', 'number', subtitleOffset, async (e) => {
                 const val = parseFloat(e.target.value);
-                if (!isNaN(val)) {
-                    subtitleOffset = val;
-                    if (originalSubtitleText) {
-                        try {
-                            subtitles = await parseSRT(originalSubtitleText);
-                            clearSubtitleTrack();
-                            updateSubtitle();
-                        } catch (error) {
-                            showToast(`应用字幕偏移失败: ${error.message}`);
-                        }
+                if (!Number.isFinite(val)) return;
+                subtitleOffset = val;
+                if (originalSubtitleText) {
+                    try {
+                        subtitles = await parseSRT(originalSubtitleText);
+                        updateSubtitle();
+                    } catch (error) {
+                        showToast(`应用字幕偏移失败: ${error.message}`);
                     }
                 }
-            }, 'subtitleOffset', { step: 0.1 }), // Added step
-             // --- NEW: Subtitle Position Input ---
-             createInputGroup('字幕位置', 'number', subtitleVerticalPositionPercent, (e) => {
-                 const val = parseFloat(e.target.value);
-                 if (!isNaN(val)) {
-                     subtitleVerticalPositionPercent = val;
-                     updateSubtitlePositionStyle(subtitleVerticalPositionPercent); // Update style immediately
-                 }
-             }, 'subtitlePosition', { min: 0, max: 90, step: 1 }), // Added min/max/step
+            }, 'subtitleOffset', { step: 0.1 }),
+            createInputGroup('字幕位置', 'number', subtitleVerticalPositionPercent, (e) => {
+                const val = parseFloat(e.target.value);
+                if (!Number.isFinite(val)) return;
+                subtitleVerticalPositionPercent = val;
+                updateSubtitlePositionStyle(subtitleVerticalPositionPercent);
+            }, 'subtitlePosition', { min: 0, max: 90, step: 1 }),
             createInputGroup('字幕大小', 'number', subtitleFontSize, (e) => {
                 const val = parseFloat(e.target.value);
-                if (!isNaN(val)) {
-                    subtitleFontSize = clamp(val, 12, 72);
-                    updateSubtitleAppearanceStyle();
-                }
+                if (!Number.isFinite(val)) return;
+                subtitleFontSize = clamp(val, 12, 72);
+                updateSubtitleAppearanceStyle();
             }, 'subtitleSize', { min: 12, max: 72, step: 1 }),
             createInputGroup('字幕颜色', 'color', subtitleColor, (e) => {
                 const nextColor = normalizeHexColor(e.target.value);
-                if (nextColor) {
-                    subtitleColor = nextColor;
-                    updateSubtitleAppearanceStyle();
-                }
+                if (!nextColor) return;
+                subtitleColor = nextColor;
+                updateSubtitleAppearanceStyle();
             }, 'subtitleColor')
         );
+
+        // 自动加载开关
+        const autoLoadRow = document.createElement('label');
+        autoLoadRow.className = 'auto-load-row';
+        const autoLoadCheckbox = document.createElement('input');
+        autoLoadCheckbox.type = 'checkbox';
+        autoLoadCheckbox.checked = autoLoadEnabled;
+        autoLoadCheckbox.onchange = (e) => {
+            autoLoadEnabled = e.target.checked;
+            localStorage.setItem('missavAutoLoadSubtitle', autoLoadEnabled ? '1' : '0');
+            showToast(autoLoadEnabled ? '已开启自动加载字幕' : '已关闭自动加载字幕', 1500);
+            if (autoLoadEnabled) {
+                autoLoadSuppressed = false;
+                autoLoadAttemptedFor = '';
+                maybeAutoLoadSubtitle();
+            }
+        };
+        const autoLoadText = document.createElement('span');
+        autoLoadText.textContent = '打开视频后自动加载字幕';
+        autoLoadRow.append(autoLoadCheckbox, autoLoadText);
+        controlPanel.appendChild(autoLoadRow);
 
         // --- Buttons ---
         const buttonContainer = document.createElement('div');
@@ -1188,8 +1180,9 @@
 
         buttonContainer.append(
             createButton('本地字幕', () => subtitleInput.click()),
-            createButton('站点搜索', searchSubtitleOnline1),
             createButton('在线搜索', searchSubtitleOnline2),
+            createButton('更换字幕', changeSubtitle),
+            createButton('站点搜索', searchSubtitleOnline1),
             createButton('清空字幕', clearSubtitles),
             createButton('保存设置', saveSettings)
         );
@@ -1237,34 +1230,32 @@
         }
     }
 
-    /** Sets up the subtitle display element and attaches it to the video container. */
+    /** 创建字幕节点，挂载交给 ensureSubtitleMounted 持续维护。 */
     function setupSubtitleDisplay() {
         subtitleElement = document.createElement('div');
         subtitleElement.className = 'custom-subtitle';
-        subtitleElement.style.display = 'none'; // Hide initially
-        updateSubtitlePositionStyle(subtitleVerticalPositionPercent); // Apply initial position
+        subtitleElement.style.display = 'none';
+        updateSubtitlePositionStyle(subtitleVerticalPositionPercent);
         updateSubtitleAppearanceStyle();
 
-        const waitForContainer = setInterval(() => {
-            videoContainer = findVideoContainer();
+        ensureSubtitleMounted();
 
-            if (videoContainer) {
-                clearInterval(waitForContainer);
-                // Ensure container can host positioned elements
-                if (getComputedStyle(videoContainer).position === 'static') {
-                     videoContainer.style.position = 'relative';
-                }
-                videoContainer.appendChild(subtitleElement);
-            } else {
-                console.warn("9527字幕悬浮球: Video container not found yet.");
+        const mountTimer = setInterval(() => {
+            videoContainer = findVideoContainer();
+            if (videoContainer && subtitleElement.isConnected) {
+                clearInterval(mountTimer);
+                return;
             }
+            ensureSubtitleMounted();
         }, 500);
 
         setTimeout(() => {
-            if (!videoContainer) {
-                clearInterval(waitForContainer);
-                console.error("9527字幕悬浮球: Failed to find video container after 10 seconds.");
-                showToast("错误：无法找到视频容器挂载字幕", 5000);
+            clearInterval(mountTimer);
+            if (!subtitleElement.isConnected) {
+                console.error('9527字幕悬浮球: Failed to find video container after 10 seconds.');
+                if (findVideoElement()) {
+                    showToast('错误：无法找到视频容器挂载字幕', 5000);
+                }
             }
         }, 10000);
     }
@@ -1277,10 +1268,19 @@
 
         try {
             const text = await file.text();
+            const parsed = await parseSRT(text);
+            if (!parsed.length) throw new Error('未解析到有效字幕条目');
+
             originalSubtitleText = text;
-            subtitles = await parseSRT(text);
-            clearSubtitleTrack();
-            if (subtitleList) closeSubtitleList(); // Close search results if open
+            subtitles = parsed;
+            currentSubtitleUrl = '';
+            currentSubtitleName = file.name;
+            autoLoadSuppressed = true;
+
+            ensureSubtitleMounted();
+            startSubtitleRenderLoop();
+            updateSubtitle();
+            if (subtitleList) closeSubtitleList();
             showToast('本地字幕加载成功');
         } catch (error) {
             console.error("Subtitle load error:", error);
@@ -1306,11 +1306,14 @@
                         if (timeLineIndex === -1) return null; // Invalid time line format
 
                         const [startStr, endStr] = lines[timeLineIndex].split(' --> ');
-                        const start = parseTime(startStr) + subtitleOffset;
-                        const end = parseTime(endStr) + subtitleOffset;
+                        const rawStart = parseTime(startStr) + subtitleOffset;
+                        const rawEnd = parseTime(endStr) + subtitleOffset;
+                        // 负偏移落在地平线之前的字幕保留可见部分，而不是整条丢掉
+                        const start = Math.max(0, rawStart);
+                        const end = rawEnd;
                         const textContent = lines.slice(timeLineIndex + 1).join('\n').trim();
 
-                        if (isNaN(start) || isNaN(end) || start < 0 || end < 0 || start > end || !textContent) return null; // More validation
+                        if (isNaN(start) || isNaN(end) || end <= 0 || start > end || !textContent) return null;
 
                         return { start, end, text: textContent };
                     } catch (e) {
@@ -1319,7 +1322,7 @@
                     }
                 })
                 .filter(Boolean); // Remove any null results from map
-            resolve(subs);
+            resolve(subs.sort((a, b) => a.start - b.start)); // 保证升序，便于线性查找提前退出
         });
     }
 
@@ -1353,19 +1356,23 @@
         }
 
         try {
-            const currentTime = isBridgeActive
-                ? playerBridgeState.currentTime
-                : (videoElement ? videoElement.currentTime : NaN);
-
+            const currentTime = getPlaybackTime();
             if (!Number.isFinite(currentTime)) {
                 setSubtitleText('');
                 return;
             }
-            // Find the first matching subtitle (handles potential overlaps)
-            const currentSub = subtitles.find(sub => currentTime >= sub.start && currentTime <= sub.end);
 
-            setSubtitleText(currentSub ? currentSub.text : '');
+            let activeCue = null;
+            for (let i = 0; i < subtitles.length; i += 1) {
+                const cue = subtitles[i];
+                if (currentTime >= cue.start && currentTime <= cue.end) {
+                    activeCue = cue;
+                    break;
+                }
+                if (cue.start > currentTime) break; // 字幕按时间升序，越界即可停
+            }
 
+            setSubtitleText(activeCue ? activeCue.text : '');
         } catch (e) {
             console.error("Error updating subtitle:", e);
         }
@@ -1405,43 +1412,9 @@
         }, 500);
     }
 
-    /** Sets up global keyboard shortcuts. */
-    function setupShortcuts() {
-         document.addEventListener('keydown', (e) => {
-            if (e.target.closest && e.target.closest('.custom-control-panel input')) {
-                 return; // Ignore if typing in panel inputs
-             }
-            if (!videoElement || typeof videoElement.currentTime !== 'number') return;
-
-            const key = e.key.toLowerCase();
-
-            try {
-                 if (key === shortcutKeys.accelerate && !isAccelerating) {
-                     videoElement.playbackRate = accelerationRate;
-                     isAccelerating = true;
-                 } else if (key === shortcutKeys.forward) {
-                     videoElement.currentTime += skipTime;
-                 } else if (key === shortcutKeys.backward) {
-                     videoElement.currentTime = Math.max(0, videoElement.currentTime - skipTime);
-                 }
-             } catch (err) {
-                console.error("Shortcut error:", err);
-             }
-        });
-
-        document.addEventListener('keyup', (e) => {
-            if (e.key.toLowerCase() === shortcutKeys.accelerate && isAccelerating) {
-                 if (videoElement) {
-                    try { videoElement.playbackRate = 1; } catch(err) { console.error("Error resetting speed:", err); }
-                 }
-                isAccelerating = false;
-            }
-        });
-    }
-
-    /** Searches subtitles on Subtitlecat. */
+    /** 按番号跳转 Subtitlecat 搜索。 */
     function searchSubtitleOnline1() {
-         const videoID = getCurrentVideoID();
+        const videoID = getCurrentVideoID();
         if (!videoID) {
             showToast('无法获取当前视频番号');
             return;
@@ -1451,36 +1424,135 @@
         showToast(`正在打开 Subtitlecat 搜索: ${videoID}`);
     }
 
-    /** Searches subtitles using Xunlei API. */
+    /** 拉取某番号下的 SRT 候选列表。 */
+    async function requestSubtitleCandidates(videoID) {
+        const apiUrl = `https://api-shoulei-ssl.xunlei.com/oracle/subtitle?name=${encodeURIComponent(videoID)}`;
+        const data = await fetchSubtitleAPI(apiUrl);
+
+        if (data?.code !== 0 || !Array.isArray(data.data)) {
+            return [];
+        }
+
+        return data.data.filter((item) => item && item.url && item.url.toLowerCase().includes('.srt'));
+    }
+
+    function cacheSearchResults(videoID, list) {
+        lastSearchResults = Array.isArray(list) ? list : [];
+        lastSearchVideoId = videoID || '';
+    }
+
+    /** 手动在线搜索：展示候选列表。 */
     async function searchSubtitleOnline2() {
-         const videoID = getCurrentVideoID();
+        const videoID = getCurrentVideoID();
         if (!videoID) {
             showToast('无法获取当前视频番号');
             return;
         }
 
-        showToast(`(在线搜索) 正在搜索字幕: ${videoID}...`);
+        showToast(`正在搜索字幕: ${videoID}...`);
         closeSubtitleList();
 
         try {
-            const apiUrl = `https://api-shoulei-ssl.xunlei.com/oracle/subtitle?name=${encodeURIComponent(videoID)}`;
-            const data = await fetchSubtitleAPI(apiUrl);
+            const list = await requestSubtitleCandidates(videoID);
+            cacheSearchResults(videoID, list);
 
-            if (data?.code === 0 && data.data?.length > 0) {
-                const relevantSubs = data.data.filter(item =>
-                    item.url && item.url.toLowerCase().includes('.srt')
-                );
-                if (relevantSubs.length > 0) {
-                    showSubtitleList(relevantSubs);
-                } else {
-                    showToast(`(在线搜索) 未找到 ${videoID} 的SRT字幕`);
-                }
+            if (list.length) {
+                showSubtitleList(list);
             } else {
-                 showToast(`(在线搜索) 未找到 ${videoID} 的匹配字幕 ${data?.code ? `(Code: ${data.code})` : ''}`);
+                showToast(`未找到 ${videoID} 的字幕`);
             }
         } catch (error) {
-            console.error("Subtitle search error (Source 2):", error);
-            showToast(`(在线搜索) 字幕搜索出错: ${error.message}`);
+            console.error('Subtitle search error:', error);
+            showToast(`字幕搜索出错: ${error.message}`);
+        }
+    }
+
+    /** 在候选里随机挑一条，排除当前正在用的那条。 */
+    function pickRandomCandidate(excludeUrl) {
+        const pool = lastSearchResults.filter((item) => item.url !== excludeUrl);
+        if (!pool.length) return null;
+        return pool[Math.floor(Math.random() * pool.length)];
+    }
+
+    /** 面板「更换字幕」：没有候选就现搜一次，然后随机换一条。 */
+    async function changeSubtitle() {
+        const videoID = getCurrentVideoID();
+        if (!videoID) {
+            showToast('无法获取当前视频番号');
+            return;
+        }
+
+        if (!lastSearchResults.length || lastSearchVideoId !== videoID) {
+            showToast(`正在获取字幕列表: ${videoID}...`);
+            try {
+                const list = await requestSubtitleCandidates(videoID);
+                cacheSearchResults(videoID, list);
+            } catch (error) {
+                showToast(`字幕搜索出错: ${error.message}`);
+                return;
+            }
+        }
+
+        if (!lastSearchResults.length) {
+            showToast('该视频没有可用字幕');
+            return;
+        }
+
+        const next = pickRandomCandidate(currentSubtitleUrl);
+        if (!next) {
+            showToast('只有一条字幕，无法更换');
+            return;
+        }
+
+        const total = lastSearchResults.length;
+        const index = lastSearchResults.indexOf(next) + 1;
+        const ok = await loadRemoteSubtitle(next.url, {
+            name: next.name,
+            silent: true
+        });
+
+        if (ok) {
+            showToast(`已换字幕 (${index}/${total}): ${next.name}`, 2200);
+        }
+    }
+
+    /** 打开视频后自动搜一次并随机加载一条。 */
+    function maybeAutoLoadSubtitle() {
+        if (!autoLoadEnabled || autoLoadSuppressed) return;
+        if (subtitles.length) return;
+
+        const videoID = getCurrentVideoID();
+        if (!videoID) return;
+        if (autoLoadAttemptedFor === videoID) return;
+
+        autoLoadAttemptedFor = videoID;
+        autoLoadSubtitle(videoID);
+    }
+
+    async function autoLoadSubtitle(videoID) {
+        try {
+            const list = await requestSubtitleCandidates(videoID);
+            cacheSearchResults(videoID, list);
+
+            if (!list.length) {
+                console.log('9527字幕悬浮球: 自动加载未找到字幕', videoID);
+                return;
+            }
+
+            // 期间用户可能已经手动加载或关闭开关
+            if (!autoLoadEnabled || autoLoadSuppressed || currentSubtitleUrl) return;
+
+            const pick = list[Math.floor(Math.random() * list.length)];
+            const ok = await loadRemoteSubtitle(pick.url, {
+                name: pick.name,
+                silent: true
+            });
+
+            if (ok) {
+                showToast(`自动加载字幕: ${pick.name}`, 2000);
+            }
+        } catch (error) {
+            console.warn('9527字幕悬浮球: 自动加载失败', error);
         }
     }
 
@@ -1529,7 +1601,7 @@
                 div.title = `点击加载: ${item.name}`;
                 div.onclick = (e) => {
                     e.stopPropagation();
-                    loadRemoteSubtitle(item.url);
+                    loadRemoteSubtitle(item.url, { name: item.name });
                 };
                 subtitleList.appendChild(div);
             });
@@ -1568,9 +1640,17 @@
         document.removeEventListener('click', handleClickOutsideList, true);
     }
 
-    /** Loads subtitle from remote URL. */
-    async function loadRemoteSubtitle(url) {
-        showToast('正在加载在线字幕...');
+    /**
+     * 加载在线字幕。
+     * @param {string} url SRT 地址
+     * @param {{name?: string, silent?: boolean}} meta 名称与是否静默
+     * @returns {Promise<boolean>} 是否成功
+     */
+    async function loadRemoteSubtitle(url, meta = {}) {
+        const seq = ++loadSeq;
+        const silent = Boolean(meta.silent);
+
+        if (!silent) showToast('正在加载在线字幕...');
         closeSubtitleList();
 
         try {
@@ -1584,6 +1664,8 @@
                 timeout: 20000
             });
 
+            if (seq !== loadSeq) return false; // 已被更新的请求取代
+
             if (response.status < 200 || response.status >= 300) {
                 throw new Error(`下载失败 (HTTP ${response.status})`);
             }
@@ -1593,22 +1675,44 @@
                 throw new Error('字幕内容为空');
             }
 
+            const parsed = await parseSRT(srtContent);
+            if (seq !== loadSeq) return false;
+            if (!parsed.length) {
+                throw new Error('未解析到有效字幕条目');
+            }
+
             originalSubtitleText = srtContent;
-            subtitles = await parseSRT(srtContent);
-            clearSubtitleTrack();
-            showToast('在线字幕加载成功');
+            subtitles = parsed;
+            currentSubtitleUrl = url;
+            currentSubtitleName = meta.name || '';
+
+            // 关键：加载完立刻挂载并渲染一次，不再等 timeupdate
+            ensureSubtitleMounted();
+            startSubtitleRenderLoop();
+            updateSubtitle();
+
+            if (!silent) {
+                showToast(meta.name ? `字幕已加载: ${meta.name}` : '在线字幕加载成功');
+            }
+            return true;
         } catch (error) {
+            if (seq !== loadSeq) return false;
             console.error("Error loading remote subtitle:", error);
-            showToast(`在线字幕加载失败: ${error.message}`);
-            clearSubtitles();
+            if (!silent) {
+                showToast(`在线字幕加载失败: ${error.message}`);
+            }
+            return false;
         }
     }
 
     /** Clears current subtitles. */
     function clearSubtitles() {
+        loadSeq += 1; // 丢弃还在路上的请求
         subtitles = [];
         originalSubtitleText = '';
-        clearSubtitleTrack();
+        currentSubtitleUrl = '';
+        currentSubtitleName = '';
+        autoLoadSuppressed = true; // 用户主动清空后，本页不再自动加载
         setSubtitleText('');
         showToast('字幕已清除', 1500);
     }
@@ -1661,15 +1765,11 @@
                 72
             );
             subtitleColor = normalizeHexColor(subtitleColor) || '#ffffff';
-            localStorage.setItem('missavAccelerationRate', accelerationRate);
-            localStorage.setItem('missavSkipTime', skipTime);
             localStorage.setItem('missavSubtitleOffset', subtitleOffset);
-            localStorage.setItem('missavSubtitlePosition', subtitleVerticalPositionPercent); // <-- SAVE POSITION
+            localStorage.setItem('missavSubtitlePosition', subtitleVerticalPositionPercent);
             localStorage.setItem('missavSubtitleSize', subtitleFontSize);
             localStorage.setItem('missavSubtitleColor', subtitleColor);
-            localStorage.setItem('missavAccelerateKey', shortcutKeys.accelerate);
-            localStorage.setItem('missavForwardKey', shortcutKeys.forward);
-            localStorage.setItem('missavBackwardKey', shortcutKeys.backward);
+            localStorage.setItem('missavAutoLoadSubtitle', autoLoadEnabled ? '1' : '0');
             showToast('设置已保存');
         } catch (e) {
             console.error("Error saving settings:", e);
@@ -1706,15 +1806,16 @@
 
     // --- Initialization ---
     function initializeScript() {
-        console.log("9527字幕悬浮球: Initializing Safari compatibility build...");
-        setupSubtitleDisplay();    // Prepare subtitle div (applies initial position)
-        createControlPanel();      // Create the main controls (including position input)
-        createShowControlsButton();// Create the hidden 'show' button
-        hideControlPanel();        // Start collapsed to save space
+        console.log("9527字幕悬浮球: Initializing...");
+        setupSubtitleDisplay();
+        createControlPanel();
+        createShowControlsButton();
+        hideControlPanel();
         window.addEventListener('resize', handleViewportChange);
-        setupPlayerBridge();       // Bridge actual page player state into Userscripts context
-        setupShortcuts();          // Setup keyboard listeners
-        initPlayer();              // Connect to the video element
+        setupPlayerBridge();
+        initPlayer();
+        startSubtitleRenderLoop();
+        setInterval(maybeAutoLoadSubtitle, 3000); // 兜底：SPA 换集 / 视频晚到
         console.log("9527字幕悬浮球: Initialization complete.");
     }
 

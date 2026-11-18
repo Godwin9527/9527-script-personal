@@ -2,7 +2,7 @@
 // @name         9527字幕悬浮球助手
 // @name:zh-CN   9527字幕悬浮球助手
 // @namespace    https://github.com/Godwin9527
-// @version      1.4.1
+// @version      1.5.0
 // @description  Add subtitle loading, appearance controls, online search, hotkeys, and a draggable floating-ball panel for MissAV and Jable.
 // @description:zh-CN 为 MissAV 与 Jable 提供本地字幕加载、字幕样式调节、在线字幕搜索、快捷键控制与可拖拽字幕悬浮球面板，兼容 Safari Userscripts 与 Tampermonkey。
 // @author       9527

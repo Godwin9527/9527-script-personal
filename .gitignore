@@ -2,3 +2,4 @@ __check_tmp.js
 __syntax_check.txt
 node_modules/
 .workbuddy-ai/
+.workbuddy/
