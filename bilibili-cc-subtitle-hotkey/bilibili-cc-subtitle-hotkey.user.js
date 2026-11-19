@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         9527哔哩哔哩CC字幕快捷键
 // @namespace    https://github.com/Godwin9527
-// @version      1.0.1
+// @version      1.0.2
 // @description  独立于 Bilibili Evolved 的 CC 字幕开关键盘快捷键，支持自定义按键、字幕语言偏好、人工字幕优先
 // @author       Godwin9527
 // @run-at       document-start
@@ -188,6 +188,31 @@
     }
   }
 
+  // ---------------------------------------------------------------- 诊断
+
+  let debugMode = false
+
+  function debugLog(text) {
+    if (!debugMode || !document.body) {
+      return
+    }
+    let el = document.getElementById('bcc-debug')
+    if (!el) {
+      el = document.createElement('div')
+      el.id = 'bcc-debug'
+      el.style.cssText =
+        'position:fixed;left:12px;bottom:64px;z-index:2147483647;max-width:70vw;' +
+        'padding:8px 12px;border-radius:6px;background:rgba(0,0,0,.9);' +
+        'color:#7ee787;font:12px/1.6 Consolas,Menlo,monospace;' +
+        'white-space:pre-wrap;pointer-events:none;' +
+        'box-shadow:0 4px 16px rgba(0,0,0,.4);'
+      document.body.appendChild(el)
+    }
+    el.textContent = text
+    clearTimeout(el._t)
+    el._t = window.setTimeout(() => el.remove(), 12000)
+  }
+
   // ---------------------------------------------------------------- 字幕控制
 
   function queryItems() {
@@ -201,25 +226,77 @@
     )
   }
 
-  /** 面板未渲染时先展开一次。B 站现在点击字幕按钮只展开面板, 不切换字幕状态。 */
+  /** 派发完整的指针 + 鼠标 + click 事件序列, 尽量贴近真实点击 */
+  function fireClickSequence(el) {
+    const opts = { bubbles: true, cancelable: true, view: window, button: 0, buttons: 1 }
+    try {
+      if (typeof PointerEvent === 'function') {
+        el.dispatchEvent(new PointerEvent('pointerover', { ...opts, buttons: 0 }))
+        el.dispatchEvent(new PointerEvent('pointerenter', { ...opts, bubbles: false, buttons: 0 }))
+        el.dispatchEvent(new PointerEvent('pointerdown', opts))
+      }
+      el.dispatchEvent(new MouseEvent('mouseover', { ...opts, buttons: 0 }))
+      el.dispatchEvent(new MouseEvent('mouseenter', { ...opts, bubbles: false, buttons: 0 }))
+      el.dispatchEvent(new MouseEvent('mousedown', opts))
+      el.dispatchEvent(new MouseEvent('mouseup', { ...opts, buttons: 0 }))
+      el.click()
+    } catch (e) {
+      el.click()
+    }
+  }
+
+  /**
+   * 面板未渲染时先展开一次。
+   * B 站现在点击字幕按钮只展开面板, 不切换字幕状态。
+   * 逐级降级: 按钮 → aria-label 容器 → 按钮父级。
+   */
   async function ensureCloseSwitch() {
     let close = document.querySelector(SEL_CLOSE)
     if (close) {
       return close
     }
-    const btn = await waitFor(SEL_BTN, 600)
-    if (!btn) {
-      return null
+
+    const candidates = []
+    const pushCandidate = el => {
+      if (el && !candidates.includes(el)) {
+        candidates.push(el)
+      }
     }
-    btn.dispatchEvent(new MouseEvent('mouseenter', { bubbles: false }))
-    btn.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
-    btn.click()
-    close = await waitFor(SEL_CLOSE, 800)
-    if (close) {
-      return close
+    pushCandidate(await waitFor(SEL_BTN, 400))
+    pushCandidate(document.querySelector('[aria-label="字幕"]'))
+    const first = candidates[0]
+    if (first && first.parentElement) {
+      pushCandidate(first.parentElement)
     }
-    btn.dispatchEvent(new PointerEvent('pointerenter', { bubbles: false }))
-    return waitFor(SEL_CLOSE, 600)
+
+    debugLog(
+      `面板不存在, 候选按钮 ${candidates.length} 个\n` +
+        candidates
+          .map((el, i) => `${i}. ${el.tagName}.${(el.className || '').toString().slice(0, 40)}`)
+          .join('\n'),
+    )
+
+    for (const el of candidates) {
+      fireClickSequence(el)
+      close = await waitFor(SEL_CLOSE, 700)
+      if (close) {
+        debugLog('唤醒成功, 面板已渲染')
+        return close
+      }
+    }
+
+    // 最后一轮: hover 后再点一次
+    if (first) {
+      first.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
+      fireClickSequence(first)
+      close = await waitFor(SEL_CLOSE, 800)
+      if (close) {
+        debugLog('hover 后唤醒成功')
+        return close
+      }
+    }
+    debugLog('唤醒失败, 没有找到字幕面板')
+    return null
   }
 
   /** 读取 B 站播放器保存的字幕语言偏好 (bpx_player_profile → subtitle.preferred_language / subtitle.lan) */
@@ -327,33 +404,43 @@
     }
     busy = true
     try {
+      debugLog('① 查找字幕面板…')
       const closeSwitch = await ensureCloseSwitch()
       if (!closeSwitch) {
+        debugLog('① 失败: 没有找到 .bpx-player-ctrl-subtitle-close-switch')
         toast('没有找到字幕控件，可能该视频没有字幕')
         return
       }
 
       // bpx-state-active 表示「关闭字幕」这一项被选中, 也就是当前字幕是关闭状态
       const isOff = closeSwitch.classList.contains('bpx-state-active')
+      const items = queryItems()
+      debugLog(
+        `② 面板已就绪\n关闭态=${isOff}\nclass=${(closeSwitch.className || '').toString()}\n语言项=${items.length} 个: ` +
+          items.map(el => lanOf(el)).join(', '),
+      )
 
       if (!isOff) {
         closeSwitch.click()
+        debugLog('③ 已点击关闭')
         successTip('字幕已关闭')
         return
       }
 
-      const items = queryItems()
       if (!items.length) {
+        debugLog('③ 失败: 没有可选字幕项')
         toast('当前视频没有可选字幕')
         return
       }
       const preference = getLangPref() || readPlayerLangPreference()
       const target = pickSubtitleItem(items, preference, isHumanFirst())
       if (!target) {
+        debugLog('③ 失败: 语言匹配为空')
         toast('当前视频没有可选字幕')
         return
       }
       target.click()
+      debugLog(`③ 已点击语言项 lan=${lanOf(target)}`)
       const label = (target.textContent || '').trim()
       successTip(label ? `字幕已开启（${label}）` : '字幕已开启')
     } finally {
@@ -624,15 +711,26 @@
   // ---------------------------------------------------------------- 快捷键
 
   function onKeyDown(e) {
+    const path = typeof e.composedPath === 'function' ? e.composedPath() : []
+    const first = path[0] || e.target
+    const combo = normalizeCombo(e)
+
+    if (debugMode) {
+      const matched = combo ? comboKey(combo) === comboKey(getHotkeyValue()) : false
+      debugLog(
+        `key=${e.key} code=${e.code}\n` +
+          `combo=${combo || '(修饰键)'}  配置=${getHotkeyValue()}  匹配=${matched}\n` +
+          `启用=${isEnabled()}  录制中=${recording}  面板=${!!panelHost}\n` +
+          `target=${(first && first.tagName) || '-'}  editable=${isEditable(first)}`,
+      )
+    }
+
     if (recording || !isEnabled() || panelHost) {
       return
     }
-    const path = typeof e.composedPath === 'function' ? e.composedPath() : []
-    const first = path[0] || e.target
     if (isEditable(first)) {
       return
     }
-    const combo = normalizeCombo(e)
     if (!combo) {
       return
     }
@@ -655,6 +753,18 @@
     GM_registerMenuCommand('设置 CC 字幕快捷键', openSettings)
     GM_registerMenuCommand('切换一次 CC 字幕（调试）', () => {
       toggleSubtitle()
+    })
+    GM_registerMenuCommand('诊断：显示按键信息（开/关）', () => {
+      debugMode = !debugMode
+      toast(`按键诊断已${debugMode ? '开启' : '关闭'}`)
+      if (debugMode) {
+        debugLog('诊断已开启，在视频页按一次快捷键查看按键信息')
+      } else {
+        const el = document.getElementById('bcc-debug')
+        if (el) {
+          el.remove()
+        }
+      }
     })
   }
 
