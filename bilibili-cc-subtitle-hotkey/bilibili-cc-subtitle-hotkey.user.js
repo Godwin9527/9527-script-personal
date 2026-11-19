@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         9527哔哩哔哩CC字幕快捷键
 // @namespace    https://github.com/Godwin9527
-// @version      1.0.5
+// @version      1.0.6
 // @description  独立于 Bilibili Evolved 的 CC 字幕开关键盘快捷键，支持自定义按键、字幕语言偏好、人工字幕优先
 // @author       Godwin9527
 // @run-at       document-start
@@ -563,22 +563,119 @@
     return false
   }
 
-  /** 播放器内部字幕状态 (仅在可用时使用, B 站随时可能移除) */
-  function getSubtitleStore() {
-    for (const player of playerCandidates()) {
-      if (typeof player.__core !== 'function') {
-        continue
+  /** 从任意对象上找字幕 store (B 站不同版本挂的位置不一样) */
+  function storeFrom(obj) {
+    if (!obj || typeof obj !== 'object') {
+      return null
+    }
+    try {
+      if (obj.subtitleStore) {
+        return obj.subtitleStore
       }
-      try {
-        const core = player.__core()
+      if (typeof obj.__core === 'function') {
+        const core = obj.__core()
         if (core && core.subtitleStore) {
           return core.subtitleStore
         }
-      } catch (e) {
-        /* 内部结构变化时忽略 */
+        if (core && core.subtitle) {
+          return core.subtitle
+        }
+      }
+      for (const key of ['core', '_core', 'playerCore']) {
+        const core = obj[key]
+        if (core && typeof core === 'object') {
+          if (core.subtitleStore) {
+            return core.subtitleStore
+          }
+          if (core.subtitle) {
+            return core.subtitle
+          }
+        }
+      }
+      if (obj.subtitle && typeof obj.subtitle === 'object') {
+        return obj.subtitle
+      }
+    } catch (e) {
+      /* 内部结构变化时忽略 */
+    }
+    return null
+  }
+
+  function getSubtitleStore() {
+    for (const player of playerCandidates()) {
+      const store = storeFrom(player)
+      if (store) {
+        return store
       }
     }
     return null
+  }
+
+  /** player 实例上与字幕相关的方法名 */
+  function playerSubtitleMethods() {
+    const found = []
+    for (const player of playerCandidates()) {
+      for (const name of listMethods(player, 300)) {
+        if (/subtitle|cc/i.test(name) && found.indexOf(name) === -1) {
+          found.push(name)
+        }
+      }
+    }
+    return found
+  }
+
+  /** 当前应选的字幕语言: 先偏好, 再退回页面上的语言项 */
+  function preferredLan() {
+    const preference = getLangPref() || readPlayerLangPreference()
+    const native = nativeState()
+    if (native && native.list.length) {
+      return pickLanFromList(native.list, preference, isHumanFirst())
+    }
+    const items = queryItems()
+    if (items.length) {
+      const target = pickSubtitleItem(items, preference, isHumanFirst())
+      return target ? lanOf(target) : ''
+    }
+    return preference ? String(preference) : ''
+  }
+
+  /** 直接调用 player 上的字幕 setter, 用界面状态校验是否真的生效 */
+  async function playerSubtitleTry() {
+    const setters = playerSubtitleMethods().filter(name =>
+      /^(set|switch|change|select|choose|update|toggle)/i.test(name),
+    )
+    if (!setters.length) {
+      return ''
+    }
+    const lan = preferredLan()
+    if (!lan) {
+      return ''
+    }
+    let calls = 0
+    for (const player of playerCandidates()) {
+      for (const name of setters) {
+        const fn = player[name]
+        if (typeof fn !== 'function') {
+          continue
+        }
+        for (const args of [[{ lan }], [lan], [{ lan, subtitle_url: '' }], []]) {
+          if (calls >= 8) {
+            return ''
+          }
+          calls++
+          try {
+            fn.apply(player, args)
+          } catch (e) {
+            continue
+          }
+          await sleep(300)
+          if (isSubtitleOn()) {
+            return name
+          }
+        }
+      }
+    }
+    return ''
   }
 
   /** 列出对象自身 + 原型链上的方法名 */
@@ -769,18 +866,20 @@
 
   function describeStore() {
     const native = nativeState()
+    const methods = playerSubtitleMethods()
+    const playerLine = `player 字幕方法: ${methods.join(',') || '无'}`
     if (!native) {
-      return '播放器内部接口: 不可用'
+      return `播放器内部接口: 不可用 (player 候选 ${playerCandidates().length} 个)\n${playerLine}`
     }
     const state = native.state
-    const methods = listMethods(native.store, 40).join(',')
     return (
       `播放器内部接口: 可用\n` +
       `lan=${state.lan} isclosed=${state.isclosed} enable=${state.enable}\n` +
       `languageList=${native.list.length} 项: ${native.list
         .map(it => it.lan)
         .join(',')}\n` +
-      `方法=${methods || '无'}`
+      `store 方法=${listMethods(native.store, 40).join(',') || '无'}\n` +
+      playerLine
     )
   }
 
@@ -798,30 +897,39 @@
       const native = nativeState()
       if (native) {
         trace.push(
-          `  可用: 字幕=${native.on ? '已开' : '已关'} lan=${native.state.lan || '-'} 列表=${native.list.length}`,
+          `  store 可用: 字幕=${native.on ? '已开' : '已关'} lan=${native.state.lan || '-'} 列表=${native.list.length}`,
         )
-        if (native.on) {
-          const used = await nativeClose()
-          if (used) {
-            trace.push(`② 内部接口关闭成功 (${used})`)
-            debugLog(trace.join('\n'))
-            successTip('字幕已关闭')
-            return
-          }
-        } else {
-          const used = await nativeOpen()
-          if (used) {
-            trace.push(`② 内部接口开启成功 (${used})`)
-            debugLog(trace.join('\n'))
-            const fresh = readStoreState(native.store)
-            const label = String((fresh && fresh.lan) || '')
-            successTip(label ? `字幕已开启（${label}）` : '字幕已开启')
-            return
-          }
-        }
-        trace.push('  内部接口没能完成切换, 改用界面点击')
       } else {
-        trace.push('  内部接口不可用')
+        trace.push('  没有 subtitleStore')
+      }
+
+      if (isSubtitleOn()) {
+        const used = native ? await nativeClose() : ''
+        if (used) {
+          trace.push(`② store 关闭成功 (${used})`)
+          debugLog(trace.join('\n'))
+          successTip('字幕已关闭')
+          return
+        }
+        trace.push('  关闭: store 路径没生效, 改用界面点击')
+      } else {
+        const usedStore = native ? await nativeOpen() : ''
+        if (usedStore) {
+          trace.push(`② store 开启成功 (${usedStore})`)
+          debugLog(trace.join('\n'))
+          const fresh = readStoreState(native.store)
+          const label = String((fresh && fresh.lan) || '')
+          successTip(label ? `字幕已开启（${label}）` : '字幕已开启')
+          return
+        }
+        const usedPlayer = await playerSubtitleTry()
+        if (usedPlayer) {
+          trace.push(`② player 方法开启成功 (${usedPlayer})`)
+          debugLog(trace.join('\n'))
+          successTip('字幕已开启')
+          return
+        }
+        trace.push('  开启: store / player 方法都没生效, 改用界面点击')
       }
 
       trace.push('③ 展开面板…')
@@ -946,6 +1054,17 @@
       `URL: ${location.href}`,
       `沙箱: unsafeWindow=${pageWindow !== window ? '可用' : '不可用(退回 window)'}`,
       `播放器实例候选: ${playerCandidates().length} 个`,
+      `player 字幕方法: ${playerSubtitleMethods().join(',') || '无'}`,
+      `player 自有键(前 30): ${(() => {
+        try {
+          return playerCandidates()
+            .slice(0, 1)
+            .map(p => Object.keys(p).slice(0, 30).join(','))
+            .join('')
+        } catch (e) {
+          return '(读取失败)'
+        }
+      })()}`,
       `页面全局含 player 的键: ${
         (() => {
           try {
