@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         9527哔哩哔哩CC字幕快捷键
 // @namespace    https://github.com/Godwin9527
-// @version      1.0.4
+// @version      1.0.5
 // @description  独立于 Bilibili Evolved 的 CC 字幕开关键盘快捷键，支持自定义按键、字幕语言偏好、人工字幕优先
 // @author       Godwin9527
 // @run-at       document-start
@@ -15,6 +15,7 @@
 // @grant        GM_setValue
 // @grant        GM_registerMenuCommand
 // @grant        GM_setClipboard
+// @grant        unsafeWindow
 // @noframes
 // @license      MIT
 // @downloadURL  https://raw.githubusercontent.com/Godwin9527/9527-script-personal/main/bilibili-cc-subtitle-hotkey/bilibili-cc-subtitle-hotkey.user.js
@@ -43,6 +44,63 @@
 
   const PANEL_ID = 'bcc-panel-host'
   const TOAST_ID = 'bcc-toast'
+
+  /**
+   * 页面真实 window。
+   * 暴力猴在带 @grant 时会把脚本放进沙箱, 此时 window 是代理对象,
+   * 页面后来挂上去的 window.player 不一定能读到, 必须走 unsafeWindow。
+   */
+  const pageWindow = (() => {
+    try {
+      if (typeof unsafeWindow !== 'undefined' && unsafeWindow) {
+        return unsafeWindow
+      }
+    } catch (e) {
+      /* 管理器没有 unsafeWindow */
+    }
+    return window
+  })()
+
+  const PLAYER_KEYS = ['player', 'playerRaw', 'bpxPlayer', '__player__']
+
+  /** 收集所有可能是播放器实例的对象 */
+  function playerCandidates() {
+    const found = []
+    const push = value => {
+      if (value && typeof value === 'object' && found.indexOf(value) === -1) {
+        found.push(value)
+      }
+    }
+    for (const scope of [pageWindow, window]) {
+      if (!scope) {
+        continue
+      }
+      for (const key of PLAYER_KEYS) {
+        try {
+          push(scope[key])
+        } catch (e) {
+          /* 跨域代理读取失败时忽略 */
+        }
+      }
+    }
+    for (const sel of ['#bilibili-player', '.bpx-player-container', '#playerWrap']) {
+      const root = document.querySelector(sel)
+      if (!root) {
+        continue
+      }
+      for (const key of Object.getOwnPropertyNames(root)) {
+        if (!/player|vue|__/i.test(key)) {
+          continue
+        }
+        try {
+          push(root[key])
+        } catch (e) {
+          /* 忽略 */
+        }
+      }
+    }
+    return found
+  }
 
   // ---------------------------------------------------------------- 存储
 
@@ -238,6 +296,47 @@
     }
     const visible = items.filter(isVisible)
     return visible.length ? visible : items
+  }
+
+  const forceShown = []
+
+  /**
+   * 面板已存在但被隐藏时 (实测 rect 为 0x0), 临时把祖先链上的隐藏属性顶开,
+   * 让语言项变成可点击状态。4 秒后自动还原, 不污染 B 站样式。
+   */
+  function forceShowPanel() {
+    const anchor = document.querySelector(SEL_CLOSE)
+    if (!anchor) {
+      return false
+    }
+    let node = anchor
+    for (let i = 0; i < 8 && node && node !== document.body; i++) {
+      try {
+        const style = window.getComputedStyle(node)
+        if (style.display === 'none') {
+          forceShown.push([node, 'display', node.style.display])
+          node.style.display = 'block'
+        }
+        if (style.visibility === 'hidden') {
+          forceShown.push([node, 'visibility', node.style.visibility])
+          node.style.visibility = 'visible'
+        }
+      } catch (e) {
+        /* 忽略 */
+      }
+      node = node.parentElement
+    }
+    window.setTimeout(() => {
+      while (forceShown.length) {
+        const [el, prop, old] = forceShown.pop()
+        try {
+          el.style[prop] = old
+        } catch (e) {
+          /* 元素已移除 */
+        }
+      }
+    }, 4000)
+    return isVisible(anchor)
   }
 
   /** 派发完整的指针 + 鼠标 + click 事件序列, 尽量贴近真实点击 */
@@ -464,11 +563,10 @@
     return false
   }
 
-  /** 播放器内部字幕状态 (仅在可用时用于诊断/兜底, B 站随时可能移除) */
+  /** 播放器内部字幕状态 (仅在可用时使用, B 站随时可能移除) */
   function getSubtitleStore() {
-    for (const key of ['player', 'playerRaw']) {
-      const player = window[key]
-      if (!player || typeof player.__core !== 'function') {
+    for (const player of playerCandidates()) {
+      if (typeof player.__core !== 'function') {
         continue
       }
       try {
@@ -774,6 +872,10 @@
       for (let round = 0; round < 6; round++) {
         if (!document.querySelector(SEL_CLOSE)) {
           await ensurePanelUsable()
+        } else if (round > 0 && !queryItems().some(isVisible)) {
+          if (forceShowPanel()) {
+            trace.push(`  第${round + 1}轮: 面板原本隐藏, 已临时顶开`)
+          }
         }
         const items = queryItems()
         if (!items.length) {
@@ -842,7 +944,21 @@
         typeof GM_info !== 'undefined' && GM_info.script ? GM_info.script.version : 'unknown'
       }`,
       `URL: ${location.href}`,
-      `播放器实例: player=${!!window.player} playerRaw=${!!window.playerRaw}`,
+      `沙箱: unsafeWindow=${pageWindow !== window ? '可用' : '不可用(退回 window)'}`,
+      `播放器实例候选: ${playerCandidates().length} 个`,
+      `页面全局含 player 的键: ${
+        (() => {
+          try {
+            return (
+              Object.keys(pageWindow)
+                .filter(key => /player/i.test(key))
+                .join(',') || '(空)'
+            )
+          } catch (e) {
+            return '(读取失败)'
+          }
+        })()
+      }`,
       `字幕按钮节点: ${allPanels} 个, rect=${rect(document.querySelector(SEL_BTN))}`,
       `close-switch: ${state.closeSwitch ? '存在' : '不存在'} rect=${rect(state.closeSwitch)}`,
       `close-switch class: ${state.closeSwitch ? String(state.closeSwitch.className) : '-'}`,
