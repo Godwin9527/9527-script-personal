@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         9527哔哩哔哩CC字幕快捷键
 // @namespace    https://github.com/Godwin9527
-// @version      1.0.2
+// @version      1.0.3
 // @description  独立于 Bilibili Evolved 的 CC 字幕开关键盘快捷键，支持自定义按键、字幕语言偏好、人工字幕优先
 // @author       Godwin9527
 // @run-at       document-start
@@ -14,6 +14,7 @@
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_registerMenuCommand
+// @grant        GM_setClipboard
 // @noframes
 // @license      MIT
 // @downloadURL  https://raw.githubusercontent.com/Godwin9527/9527-script-personal/main/bilibili-cc-subtitle-hotkey/bilibili-cc-subtitle-hotkey.user.js
@@ -192,8 +193,8 @@
 
   let debugMode = false
 
-  function debugLog(text) {
-    if (!debugMode || !document.body) {
+  function debugLog(text, force) {
+    if ((!debugMode && !force) || !document.body) {
       return
     }
     let el = document.getElementById('bcc-debug')
@@ -215,15 +216,28 @@
 
   // ---------------------------------------------------------------- 字幕控制
 
-  function queryItems() {
-    const major = document.querySelectorAll(SEL_MAJOR_ITEM)
-    if (major.length) {
-      return Array.from(major)
+  function isVisible(el) {
+    if (!el || !el.isConnected) {
+      return false
     }
-    const box = document.querySelector('.bpx-player-ctrl-subtitle-box') || document
-    return Array.from(box.querySelectorAll(SEL_ANY_ITEM)).filter(
-      el => !el.closest(SEL_MINOR),
-    )
+    const rect = el.getBoundingClientRect()
+    if (rect.width === 0 && rect.height === 0) {
+      return false
+    }
+    const style = window.getComputedStyle(el)
+    return style.visibility !== 'hidden' && style.display !== 'none'
+  }
+
+  function queryItems() {
+    let items = Array.from(document.querySelectorAll(SEL_MAJOR_ITEM))
+    if (!items.length) {
+      const box = document.querySelector('.bpx-player-ctrl-subtitle-box') || document
+      items = Array.from(box.querySelectorAll(SEL_ANY_ITEM)).filter(
+        el => !el.closest(SEL_MINOR),
+      )
+    }
+    const visible = items.filter(isVisible)
+    return visible.length ? visible : items
   }
 
   /** 派发完整的指针 + 鼠标 + click 事件序列, 尽量贴近真实点击 */
@@ -243,60 +257,6 @@
     } catch (e) {
       el.click()
     }
-  }
-
-  /**
-   * 面板未渲染时先展开一次。
-   * B 站现在点击字幕按钮只展开面板, 不切换字幕状态。
-   * 逐级降级: 按钮 → aria-label 容器 → 按钮父级。
-   */
-  async function ensureCloseSwitch() {
-    let close = document.querySelector(SEL_CLOSE)
-    if (close) {
-      return close
-    }
-
-    const candidates = []
-    const pushCandidate = el => {
-      if (el && !candidates.includes(el)) {
-        candidates.push(el)
-      }
-    }
-    pushCandidate(await waitFor(SEL_BTN, 400))
-    pushCandidate(document.querySelector('[aria-label="字幕"]'))
-    const first = candidates[0]
-    if (first && first.parentElement) {
-      pushCandidate(first.parentElement)
-    }
-
-    debugLog(
-      `面板不存在, 候选按钮 ${candidates.length} 个\n` +
-        candidates
-          .map((el, i) => `${i}. ${el.tagName}.${(el.className || '').toString().slice(0, 40)}`)
-          .join('\n'),
-    )
-
-    for (const el of candidates) {
-      fireClickSequence(el)
-      close = await waitFor(SEL_CLOSE, 700)
-      if (close) {
-        debugLog('唤醒成功, 面板已渲染')
-        return close
-      }
-    }
-
-    // 最后一轮: hover 后再点一次
-    if (first) {
-      first.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
-      fireClickSequence(first)
-      close = await waitFor(SEL_CLOSE, 800)
-      if (close) {
-        debugLog('hover 后唤醒成功')
-        return close
-      }
-    }
-    debugLog('唤醒失败, 没有找到字幕面板')
-    return null
   }
 
   /** 读取 B 站播放器保存的字幕语言偏好 (bpx_player_profile → subtitle.preferred_language / subtitle.lan) */
@@ -396,6 +356,129 @@
     return items[0]
   }
 
+  /** 只派发 hover 相关事件, 用于展开字幕面板 */
+  function fireHover(el) {
+    const opts = { bubbles: true, cancelable: true, view: window, button: 0, buttons: 0 }
+    try {
+      if (typeof PointerEvent === 'function') {
+        el.dispatchEvent(new PointerEvent('pointerover', opts))
+        el.dispatchEvent(new PointerEvent('pointerenter', { ...opts, bubbles: false }))
+      }
+      el.dispatchEvent(new MouseEvent('mouseover', opts))
+      el.dispatchEvent(new MouseEvent('mouseenter', { ...opts, bubbles: false }))
+      el.dispatchEvent(new MouseEvent('mousemove', opts))
+    } catch (e) {
+      /* 事件构造失败时忽略 */
+    }
+  }
+
+  /**
+   * 读取当前字幕状态。
+   * off === true  关闭字幕这一项处于选中态, 也就是字幕当前是关的
+   * off === null  面板还没渲染
+   */
+  function getState() {
+    const closeSwitch = document.querySelector(SEL_CLOSE)
+    if (!closeSwitch) {
+      return { closeSwitch: null, off: null, items: [] }
+    }
+    return {
+      closeSwitch,
+      off: closeSwitch.classList.contains('bpx-state-active'),
+      items: queryItems(),
+    }
+  }
+
+  /** 字幕是否已开启: 关闭开关不亮, 或任一语言项处于选中态 */
+  function isSubtitleOn() {
+    const state = getState()
+    if (!state.closeSwitch) {
+      return false
+    }
+    if (state.off === false) {
+      return true
+    }
+    return !!document.querySelector(`${SEL_ANY_ITEM}.bpx-state-active`)
+  }
+
+  /**
+   * 确保面板可用。
+   * B 站把字幕面板做成了按需创建: 没点过按钮时整个面板都不在 DOM 里,
+   * 这时任何点击都不会有反应。先 hover 尝试展开, 不行再真实点一次按钮。
+   */
+  async function ensurePanelUsable() {
+    if (document.querySelector(SEL_CLOSE)) {
+      return true
+    }
+    const candidates = []
+    const push = el => {
+      if (el && !candidates.includes(el)) {
+        candidates.push(el)
+      }
+    }
+    push(await waitFor(SEL_BTN, 1200))
+    push(document.querySelector('[aria-label="字幕"]'))
+    if (candidates[0] && candidates[0].parentElement) {
+      push(candidates[0].parentElement)
+    }
+    for (const el of candidates) {
+      fireHover(el)
+      if (await waitFor(SEL_CLOSE, 350)) {
+        return true
+      }
+      fireClickSequence(el)
+      if (await waitFor(SEL_CLOSE, 900)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  /** 播放器内部字幕状态 (仅在可用时用于诊断/兜底, B 站随时可能移除) */
+  function getSubtitleStore() {
+    for (const key of ['player', 'playerRaw']) {
+      const player = window[key]
+      if (!player || typeof player.__core !== 'function') {
+        continue
+      }
+      try {
+        const core = player.__core()
+        if (core && core.subtitleStore) {
+          return core.subtitleStore
+        }
+      } catch (e) {
+        /* 内部结构变化时忽略 */
+      }
+    }
+    return null
+  }
+
+  function describeStore() {
+    const subtitleStore = getSubtitleStore()
+    if (!subtitleStore) {
+      return '播放器内部接口: 不可用'
+    }
+    let state = null
+    try {
+      state = subtitleStore.state || subtitleStore.stateDetails || null
+    } catch (e) {
+      /* 忽略 */
+    }
+    if (!state) {
+      return '播放器内部接口: store 存在, state 读取失败'
+    }
+    const methods = Object.keys(subtitleStore)
+      .filter(k => typeof subtitleStore[k] === 'function')
+      .slice(0, 12)
+      .join(',')
+    return (
+      `播放器内部接口: store 可用\n` +
+      `lan=${state.lan} isclosed=${state.isclosed} enable=${state.enable}\n` +
+      `languageList=${(state.languageList || []).length} 项\n` +
+      `方法=${methods || '无'}`
+    )
+  }
+
   let busy = false
 
   async function toggleSubtitle() {
@@ -403,49 +486,152 @@
       return
     }
     busy = true
+    const trace = []
     try {
-      debugLog('① 查找字幕面板…')
-      const closeSwitch = await ensureCloseSwitch()
-      if (!closeSwitch) {
-        debugLog('① 失败: 没有找到 .bpx-player-ctrl-subtitle-close-switch')
-        toast('没有找到字幕控件，可能该视频没有字幕')
-        return
-      }
-
-      // bpx-state-active 表示「关闭字幕」这一项被选中, 也就是当前字幕是关闭状态
-      const isOff = closeSwitch.classList.contains('bpx-state-active')
-      const items = queryItems()
-      debugLog(
-        `② 面板已就绪\n关闭态=${isOff}\nclass=${(closeSwitch.className || '').toString()}\n语言项=${items.length} 个: ` +
-          items.map(el => lanOf(el)).join(', '),
+      trace.push('① 展开面板…')
+      const panelReady = await ensurePanelUsable()
+      let state = getState()
+      trace.push(
+        `② 面板=${panelReady ? '已就绪' : '未就绪'} 关闭态=${state.off} 语言项=${state.items.length}`,
       )
 
-      if (!isOff) {
-        closeSwitch.click()
-        debugLog('③ 已点击关闭')
-        successTip('字幕已关闭')
+      if (!state.closeSwitch) {
+        const btn = document.querySelector(SEL_BTN)
+        trace.push(`② 面板没有渲染出来 (字幕按钮=${btn ? '存在' : '不存在'})`)
+        if (!btn) {
+          toast('当前视频没有字幕')
+          return
+        }
+        reportFailure(trace)
         return
       }
 
-      if (!items.length) {
-        debugLog('③ 失败: 没有可选字幕项')
-        toast('当前视频没有可选字幕')
+      // ---- 关闭分支
+      if (!state.off) {
+        for (let i = 0; i < 4; i++) {
+          const close = document.querySelector(SEL_CLOSE)
+          if (!close) {
+            break
+          }
+          close.click()
+          await sleep(280)
+          if (getState().off === true) {
+            trace.push(`③ 已关闭字幕 (第 ${i + 1} 次点击生效)`)
+            debugLog(trace.join('\n'))
+            successTip('字幕已关闭')
+            return
+          }
+        }
+        trace.push('③ 关闭失败: 点击关闭开关后状态没有变化')
+        reportFailure(trace)
         return
       }
+
+      // ---- 开启分支
       const preference = getLangPref() || readPlayerLangPreference()
-      const target = pickSubtitleItem(items, preference, isHumanFirst())
-      if (!target) {
-        debugLog('③ 失败: 语言匹配为空')
+      const humanFirst = isHumanFirst()
+      trace.push(`偏好=${preference || '(无)'} 人工优先=${humanFirst}`)
+
+      let sawItems = false
+      for (let round = 0; round < 6; round++) {
+        if (!document.querySelector(SEL_CLOSE)) {
+          await ensurePanelUsable()
+        }
+        const items = queryItems()
+        if (!items.length) {
+          trace.push(`  第${round + 1}轮: 还没有语言项, 等待`)
+          await sleep(280)
+          continue
+        }
+        sawItems = true
+        const target = pickSubtitleItem(items, preference, humanFirst)
+        if (!target) {
+          trace.push(`  第${round + 1}轮: 语言匹配为空`)
+          break
+        }
+        const lan = lanOf(target)
+        // 第 1 轮纯 click; 第 2 轮完整事件序列; 之后点内部文本节点
+        if (round === 0) {
+          target.click()
+        } else if (round === 1) {
+          fireClickSequence(target)
+        } else {
+          const inner = target.querySelector('span, .name, div') || target
+          ;(inner || target).click()
+        }
+        await sleep(320)
+        if (isSubtitleOn()) {
+          trace.push(`  第${round + 1}轮: 点 ${lan} 生效`)
+          debugLog(trace.join('\n'))
+          const label = (target.textContent || '').trim()
+          successTip(label ? `字幕已开启（${label}）` : '字幕已开启')
+          return
+        }
+        trace.push(`  第${round + 1}轮: 点 ${lan} 无效, 重试`)
+        await sleep(220)
+      }
+
+      if (!sawItems) {
+        trace.push('③ 面板里始终没有语言项')
         toast('当前视频没有可选字幕')
+        debugLog(trace.join('\n'), true)
         return
       }
-      target.click()
-      debugLog(`③ 已点击语言项 lan=${lanOf(target)}`)
-      const label = (target.textContent || '').trim()
-      successTip(label ? `字幕已开启（${label}）` : '字幕已开启')
+
+      trace.push('③ 开启失败: 6 轮点击都没有生效')
+      reportFailure(trace)
     } finally {
       busy = false
     }
+  }
+
+  /** 诊断信息, 供菜单「复制诊断信息」使用 */
+  function buildDiagnostics() {
+    const state = getState()
+    const allPanels = document.querySelectorAll(SEL_BTN).length
+    const allItems = document.querySelectorAll(SEL_ANY_ITEM).length
+    const majorItems = document.querySelectorAll(SEL_MAJOR_ITEM).length
+    const visibleItems = queryItems().filter(isVisible).length
+    const rect = el => {
+      if (!el) {
+        return 'none'
+      }
+      const r = el.getBoundingClientRect()
+      return `${Math.round(r.width)}x${Math.round(r.height)} @${Math.round(r.left)},${Math.round(r.top)}`
+    }
+    const lines = [
+      `版本: ${
+        typeof GM_info !== 'undefined' && GM_info.script ? GM_info.script.version : 'unknown'
+      }`,
+      `URL: ${location.href}`,
+      `播放器实例: player=${!!window.player} playerRaw=${!!window.playerRaw}`,
+      `字幕按钮节点: ${allPanels} 个, rect=${rect(document.querySelector(SEL_BTN))}`,
+      `close-switch: ${state.closeSwitch ? '存在' : '不存在'} rect=${rect(state.closeSwitch)}`,
+      `close-switch class: ${state.closeSwitch ? String(state.closeSwitch.className) : '-'}`,
+      `语言项: 全部 ${allItems} / major ${majorItems} / 可见 ${visibleItems}`,
+      `语言项 lan: ${queryItems().map(el => lanOf(el)).join(', ') || '(空)'}`,
+      `字幕文本层: ${document.querySelectorAll('.bpx-player-subtitle-wrap').length} 个`,
+      `当前判定: ${state.off === null ? '面板未渲染' : state.off ? '字幕已关' : '字幕已开'}`,
+      describeStore(),
+    ]
+    return lines.join('\n')
+  }
+
+  /** 失败时把完整现场打印出来并尝试自动复制, 减少来回排查 */
+  function reportFailure(trace) {
+    const text = trace.join('\n') + '\n---- 现场 ----\n' + buildDiagnostics()
+    debugLog(text, true)
+    console.log('[bcc] 切换失败\n' + text)
+    try {
+      if (typeof GM_setClipboard === 'function') {
+        GM_setClipboard(text, 'text')
+        toast('字幕没有切换成功，诊断信息已复制到剪贴板')
+        return
+      }
+    } catch (e) {
+      /* 落到下面的提示 */
+    }
+    toast('字幕没有切换成功，请点菜单「复制诊断信息到剪贴板」')
   }
 
   // ---------------------------------------------------------------- 设置面板
@@ -765,6 +951,28 @@
           el.remove()
         }
       }
+    })
+    GM_registerMenuCommand('复制诊断信息到剪贴板', async () => {
+      await ensurePanelUsable()
+      const text = buildDiagnostics()
+      try {
+        if (typeof GM_setClipboard === 'function') {
+          GM_setClipboard(text, 'text')
+        } else {
+          const area = document.createElement('textarea')
+          area.value = text
+          area.style.cssText = 'position:fixed;left:-9999px;top:0;'
+          document.body.appendChild(area)
+          area.select()
+          document.execCommand('copy')
+          area.remove()
+        }
+        toast('诊断信息已复制，直接粘贴发给开发者')
+      } catch (e) {
+        toast('复制失败，请查看控制台')
+      }
+      debugLog(text)
+      console.log('[bcc] 诊断信息\n' + text)
     })
   }
 
