@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         9527哔哩哔哩CC字幕快捷键
 // @namespace    https://github.com/Godwin9527
-// @version      2.0.0
-// @description  完全独立的 CC 字幕开关：自己拉取字幕并渲染字幕层，不依赖 Bilibili Evolved，也不依赖 B 站字幕按钮，支持自定义按键与语言偏好
+// @version      2.1.0
+// @description  完全独立的 CC 字幕开关：自己拉取字幕并渲染字幕层，不依赖 Bilibili Evolved，也不依赖 B 站字幕按钮，支持自定义按键、语言偏好、字幕位置与字号颜色描边
 // @author       Godwin9527
 // @run-at       document-start
 // @match        https://www.bilibili.com/video/*
@@ -47,9 +47,40 @@
   const STORE_HUMAN = 'bcc.humanFirst'
   const STORE_TIP = 'bcc.tipMode'
   const STORE_ENABLED = 'bcc.enabled'
+  const STORE_STYLE = 'bcc.style'
 
   const DEFAULT_HOTKEY = 'shift+c'
   const MODS = ['ctrl', 'alt', 'shift', 'meta']
+
+  /** 字幕外观默认值 */
+  const DEFAULT_STYLE = {
+    posY: 9, // 距播放器底部百分比, 越大越靠上
+    align: 'center', // left | center | right
+    fontScale: 1, // 字号倍率, 1 = 容器高度的 5.2%
+    fontFamily: 'system',
+    bold: true,
+    color: '#ffffff',
+    stroke: 'medium', // none | thin | medium | thick
+    bgOpacity: 0, // 0 = 无背景框
+    lineHeight: 1.35,
+  }
+
+  const FONT_STACK = {
+    system: '"PingFang SC","Microsoft YaHei","Hiragino Sans GB",Arial,sans-serif',
+    round: '"Source Han Sans SC","Noto Sans SC","HarmonyOS Sans SC","Microsoft YaHei",sans-serif',
+    serif: '"Songti SC","SimSun","Noto Serif SC",serif',
+  }
+
+  const STROKE_SHADOW = {
+    none: 'none',
+    thin: '0 0 2px rgba(0,0,0,.9),0 1px 1px rgba(0,0,0,.9)',
+    medium:
+      '0 0 4px rgba(0,0,0,.95),0 1px 2px rgba(0,0,0,.95),' +
+      '1px 0 1px rgba(0,0,0,.85),-1px 0 1px rgba(0,0,0,.85)',
+    thick:
+      '0 0 2px #000,0 0 3px #000,0 0 5px #000,' +
+      '2px 0 2px #000,-2px 0 2px #000,0 2px 2px #000,0 -2px 2px #000',
+  }
 
   const LAYER_ID = 'bcc-subtitle-layer'
   const PANEL_ID = 'bcc-panel-host'
@@ -103,6 +134,50 @@
 
   function getHotkeyValue() {
     return store.get(STORE_KEY, DEFAULT_HOTKEY)
+  }
+
+  function clampNumber(value, min, max, fallback) {
+    const number = Number(value)
+    if (!Number.isFinite(number)) {
+      return fallback
+    }
+    return Math.min(max, Math.max(min, number))
+  }
+
+  /** 读取字幕外观配置, 并逐项兜底 */
+  function getStyle() {
+    const raw = store.get(STORE_STYLE, '')
+    let parsed = null
+    if (raw) {
+      try {
+        parsed = typeof raw === 'string' ? JSON.parse(raw) : raw
+      } catch (e) {
+        parsed = null
+      }
+    }
+    const merged = Object.assign({}, DEFAULT_STYLE, parsed && typeof parsed === 'object' ? parsed : {})
+    merged.posY = clampNumber(merged.posY, 2, 45, DEFAULT_STYLE.posY)
+    merged.fontScale = clampNumber(merged.fontScale, 0.5, 2.5, DEFAULT_STYLE.fontScale)
+    merged.bgOpacity = clampNumber(merged.bgOpacity, 0, 100, DEFAULT_STYLE.bgOpacity)
+    merged.lineHeight = clampNumber(merged.lineHeight, 1.05, 2.2, DEFAULT_STYLE.lineHeight)
+    if (!['left', 'center', 'right'].includes(merged.align)) {
+      merged.align = DEFAULT_STYLE.align
+    }
+    if (!FONT_STACK[merged.fontFamily]) {
+      merged.fontFamily = DEFAULT_STYLE.fontFamily
+    }
+    if (!STROKE_SHADOW[merged.stroke]) {
+      merged.stroke = DEFAULT_STYLE.stroke
+    }
+    if (!/^#[0-9a-f]{6}$/i.test(String(merged.color))) {
+      merged.color = DEFAULT_STYLE.color
+    }
+    merged.bold = merged.bold !== false && merged.bold !== 'false'
+    return merged
+  }
+
+  function saveStyle(style) {
+    store.set(STORE_STYLE, JSON.stringify(style))
   }
 
   // ---------------------------------------------------------------- 工具
@@ -532,16 +607,59 @@
     )
   }
 
-  function layerFontSize(layer) {
+  function layerFontSize(layer, scale) {
     const container = layer.parentElement
     const height = container ? container.getBoundingClientRect().height : 0
-    const size = Math.round((height || 540) * 0.052)
-    return Math.max(15, Math.min(38, size))
+    const ratio = scale == null ? getStyle().fontScale : scale
+    const size = Math.round((height || 540) * 0.052 * ratio)
+    return Math.max(11, Math.min(72, size))
+  }
+
+  /** 把外观配置写到字幕层上 */
+  function applyLayerStyle(layer) {
+    if (!layer) {
+      return
+    }
+    const style = getStyle()
+    layer.style.bottom = `${style.posY}%`
+    layer.style.maxWidth = '86%'
+    layer.style.boxSizing = 'border-box'
+    if (style.align === 'center') {
+      layer.style.left = '50%'
+      layer.style.right = 'auto'
+      layer.style.transform = 'translateX(-50%)'
+      layer.style.textAlign = 'center'
+    } else if (style.align === 'left') {
+      layer.style.left = '6%'
+      layer.style.right = 'auto'
+      layer.style.transform = 'none'
+      layer.style.textAlign = 'left'
+    } else {
+      layer.style.left = 'auto'
+      layer.style.right = '6%'
+      layer.style.transform = 'none'
+      layer.style.textAlign = 'right'
+    }
+    layer.style.fontSize = `${layerFontSize(layer, style.fontScale)}px`
+    layer.style.fontFamily = FONT_STACK[style.fontFamily]
+    layer.style.fontWeight = style.bold ? '700' : '400'
+    layer.style.color = style.color
+    layer.style.lineHeight = String(style.lineHeight)
+    layer.style.textShadow = STROKE_SHADOW[style.stroke]
+    if (style.bgOpacity > 0) {
+      layer.style.background = `rgba(0,0,0,${(style.bgOpacity / 100).toFixed(2)})`
+      layer.style.padding = '0.12em 0.45em'
+      layer.style.borderRadius = '0.18em'
+    } else {
+      layer.style.background = 'none'
+      layer.style.padding = '0'
+      layer.style.borderRadius = '0'
+    }
   }
 
   function mountLayer() {
     if (engine.layer && engine.layer.isConnected) {
-      engine.layer.style.fontSize = `${layerFontSize(engine.layer)}px`
+      applyLayerStyle(engine.layer)
       return engine.layer
     }
     const container = playerContainer()
@@ -554,16 +672,11 @@
     const layer = document.createElement('div')
     layer.id = LAYER_ID
     layer.style.cssText =
-      'position:absolute;left:50%;transform:translateX(-50%);bottom:9%;' +
-      'max-width:86%;margin:0 auto;text-align:center;pointer-events:none;' +
-      'z-index:60;color:#fff;font-weight:500;line-height:1.35;' +
-      'font-family:"PingFang SC","Microsoft YaHei",Arial,sans-serif;' +
-      'text-shadow:0 0 4px rgba(0,0,0,.95),0 1px 2px rgba(0,0,0,.95),' +
-      '1px 0 1px rgba(0,0,0,.85),-1px 0 1px rgba(0,0,0,.85);' +
+      'position:absolute;pointer-events:none;z-index:60;' +
       'white-space:pre-wrap;word-break:break-word;display:none;'
     container.appendChild(layer)
     engine.layer = layer
-    layer.style.fontSize = `${layerFontSize(layer)}px`
+    applyLayerStyle(layer)
     return layer
   }
 
@@ -621,7 +734,7 @@
         layer.textContent = text
       }
       if (layer.style.fontSize === '') {
-        layer.style.fontSize = `${layerFontSize(layer)}px`
+        applyLayerStyle(layer)
       }
     }
     engine.raf = window.requestAnimationFrame(tick)
@@ -691,8 +804,8 @@
       return false
     }
     engine.active = true
+    applyLayerStyle(layer)
     layer.style.display = 'block'
-    layer.style.fontSize = `${layerFontSize(layer)}px`
     toggleNativeSubtitle(true)
     startLoop()
     return true
@@ -766,6 +879,7 @@
     } catch (e) {
       /* 忽略 */
     }
+    const st = getStyle()
     const lines = [
       `版本: ${
         typeof GM_info !== 'undefined' && GM_info.script ? GM_info.script.version : 'unknown'
@@ -778,6 +892,9 @@
       `字幕层: ${engine.layer && engine.layer.isConnected ? '已挂载' : '未挂载'}`,
       `当前状态: ${engine.active ? '已开启' : '已关闭'}`,
       `当前字幕: ${engine.lan || '-'} (${engine.lanDoc || '-'}) 共 ${engine.cues.length} 条`,
+      `字幕样式: 位置=${st.posY}% ${st.align} 字号=${Math.round(st.fontScale * 100)}% 颜色=${
+        st.color
+      } 背景=${st.bgOpacity}%`,
       `缓存视频数: ${subtitleCache.size}`,
       `最近错误: ${engine.lastError || '无'}`,
       `已缓存字幕: ${
@@ -857,6 +974,7 @@
 
   function buildPanelHtml() {
     const lang = currentLangValue()
+    const style = getStyle()
     return `
 <style>
   :host { all: initial; }
@@ -866,14 +984,20 @@
     font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
   }
   .panel {
-    width: 440px; max-width: calc(100vw - 48px);
+    width: 460px; max-width: calc(100vw - 48px); max-height: 88vh; overflow-y: auto;
+    box-sizing: border-box;
     background: #181a1d; color: #e8e6e3;
     border: 1px solid #2a2d31; border-radius: 12px;
-    padding: 20px 22px 18px; box-shadow: 0 12px 48px rgba(0,0,0,.55);
+    padding: 20px 22px 0; box-shadow: 0 12px 48px rgba(0,0,0,.55);
   }
+  .panel::-webkit-scrollbar { width: 8px; }
+  .panel::-webkit-scrollbar-thumb { background: #34383d; border-radius: 4px; }
+  .panel::-webkit-scrollbar-track { background: transparent; }
   .title { font-size: 16px; font-weight: 600; margin-bottom: 4px; }
-  .sub { font-size: 12px; color: #9a958d; margin-bottom: 16px; }
-  .row { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+  .sub { font-size: 12px; color: #9a958d; margin-bottom: 14px; }
+  .group { font-size: 12px; font-weight: 600; color: #e08a5f; letter-spacing: .04em;
+    margin: 18px 0 10px; padding-bottom: 6px; border-bottom: 1px solid #26292d; }
+  .row { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
   .label { width: 96px; flex: none; font-size: 13px; color: #c9c4bc; }
   .grow { flex: 1; display: flex; gap: 8px; align-items: center; min-width: 0; }
   input[type="text"], select {
@@ -891,11 +1015,49 @@
   button:hover { border-color: #4a4f55; }
   button.primary { background: #e08a5f; border-color: #e08a5f; color: #16181a; font-weight: 600; }
   button.primary:hover { background: #e89a72; }
-  .footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
-  .hint { font-size: 12px; color: #9a958d; margin: -6px 0 12px 108px; }
+  .footer { position: sticky; bottom: 0; z-index: 4;
+    display: flex; justify-content: space-between; gap: 10px;
+    margin: 20px -22px 0; padding: 14px 22px 16px;
+    border-top: 1px solid #26292d; background: #181a1d; }
+  .footer-right { display: flex; gap: 10px; }
+  .hint { font-size: 12px; color: #9a958d; margin: -6px 0 10px 108px; }
   .check { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #c9c4bc; }
   .check input { accent-color: #e08a5f; }
   .hidden { display: none; }
+
+  input[type="range"] {
+    -webkit-appearance: none; appearance: none; flex: 1; height: 4px;
+    background: #2a2d31; border-radius: 2px; outline: none; min-width: 0;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%;
+    background: #e08a5f; cursor: pointer; border: none;
+  }
+  .val { width: 52px; flex: none; text-align: right; font-size: 12px;
+    color: #e08a5f; font-variant-numeric: tabular-nums; }
+  input[type="color"] {
+    width: 40px; height: 30px; padding: 2px; border: 1px solid #2a2d31;
+    border-radius: 6px; background: #0e0f11; cursor: pointer; flex: none;
+  }
+  .swatches { display: flex; gap: 6px; }
+  .swatch { width: 22px; height: 22px; padding: 0; border-radius: 4px;
+    border: 1px solid #3a3f45; cursor: pointer; }
+  .swatch:hover { border-color: #e08a5f; }
+
+  .preview {
+    position: relative; height: 132px; border-radius: 8px; overflow: hidden;
+    background: linear-gradient(135deg, #1b1e22 0%, #0d0f11 60%, #17191c 100%);
+    border: 1px solid #2a2d31;
+  }
+  .preview::after {
+    content: "预览"; position: absolute; left: 8px; top: 6px;
+    font-size: 11px; color: #5c6167; letter-spacing: .08em;
+  }
+  .preview-sub {
+    position: absolute; bottom: 9%; left: 50%; transform: translateX(-50%);
+    max-width: 86%; box-sizing: border-box; white-space: pre-wrap;
+    word-break: break-word; text-align: center;
+  }
 </style>
 <div class="mask">
   <div class="panel">
@@ -963,9 +1125,116 @@
       </div>
     </div>
 
+    <div class="group">字幕位置</div>
+
+    <div class="preview">
+      <div class="preview-sub" id="bcc-preview-sub">这是一行示例字幕 Sample subtitle</div>
+    </div>
+
+    <div class="row" style="margin-top:12px">
+      <div class="label">垂直位置</div>
+      <div class="grow">
+        <input type="range" class="pos-y" min="2" max="45" step="1" value="${style.posY}">
+        <div class="val pos-y-val">${style.posY}%</div>
+      </div>
+    </div>
+    <div class="hint">数值越大越靠上；B 站原生字幕约在 9%</div>
+
+    <div class="row">
+      <div class="label">水平对齐</div>
+      <div class="grow">
+        <select class="align">
+          <option value="center" ${style.align === 'center' ? 'selected' : ''}>居中</option>
+          <option value="left" ${style.align === 'left' ? 'selected' : ''}>靠左</option>
+          <option value="right" ${style.align === 'right' ? 'selected' : ''}>靠右</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="group">字幕样式</div>
+
+    <div class="row">
+      <div class="label">字号</div>
+      <div class="grow">
+        <input type="range" class="font-scale" min="50" max="250" step="5" value="${Math.round(
+          style.fontScale * 100,
+        )}">
+        <div class="val font-scale-val">${Math.round(style.fontScale * 100)}%</div>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="label">字体</div>
+      <div class="grow">
+        <select class="font-family">
+          <option value="system" ${style.fontFamily === 'system' ? 'selected' : ''}>系统黑体（默认）</option>
+          <option value="round" ${style.fontFamily === 'round' ? 'selected' : ''}>思源黑体</option>
+          <option value="serif" ${style.fontFamily === 'serif' ? 'selected' : ''}>宋体</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="label">文字颜色</div>
+      <div class="grow">
+        <input type="color" class="color" value="${style.color}">
+        <div class="swatches">
+          <button class="swatch" data-color="#ffffff" style="background:#ffffff" title="白"></button>
+          <button class="swatch" data-color="#ffe66d" style="background:#ffe66d" title="黄"></button>
+          <button class="swatch" data-color="#8fd3ff" style="background:#8fd3ff" title="浅蓝"></button>
+          <button class="swatch" data-color="#9ef0a8" style="background:#9ef0a8" title="浅绿"></button>
+          <button class="swatch" data-color="#ffb3c1" style="background:#ffb3c1" title="粉"></button>
+        </div>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="label">描边</div>
+      <div class="grow">
+        <select class="stroke">
+          <option value="none" ${style.stroke === 'none' ? 'selected' : ''}>无</option>
+          <option value="thin" ${style.stroke === 'thin' ? 'selected' : ''}>细</option>
+          <option value="medium" ${style.stroke === 'medium' ? 'selected' : ''}>中（默认）</option>
+          <option value="thick" ${style.stroke === 'thick' ? 'selected' : ''}>粗</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="label">背景框</div>
+      <div class="grow">
+        <input type="range" class="bg-opacity" min="0" max="100" step="5" value="${style.bgOpacity}">
+        <div class="val bg-opacity-val">${style.bgOpacity}%</div>
+      </div>
+    </div>
+    <div class="hint">0% 为纯文字，调高后出现黑色底框</div>
+
+    <div class="row">
+      <div class="label">行高</div>
+      <div class="grow">
+        <input type="range" class="line-height" min="105" max="200" step="5" value="${Math.round(
+          style.lineHeight * 100,
+        )}">
+        <div class="val line-height-val">${style.lineHeight.toFixed(2)}</div>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="label">加粗</div>
+      <div class="grow">
+        <label class="check">
+          <input type="checkbox" class="bold" ${style.bold ? 'checked' : ''}>
+          文字加粗
+        </label>
+      </div>
+    </div>
+
     <div class="footer">
-      <button class="btn-cancel">取消</button>
-      <button class="primary btn-save">保存</button>
+      <button class="btn-reset">恢复默认</button>
+      <div class="footer-right">
+        <button class="btn-cancel">取消</button>
+        <button class="primary btn-save">保存</button>
+      </div>
     </div>
   </div>
 </div>`
@@ -981,7 +1250,110 @@
     const tipMode = shadow.querySelector('.tip-mode')
     const enabled = shadow.querySelector('.enabled')
 
+    const posY = shadow.querySelector('.pos-y')
+    const posYVal = shadow.querySelector('.pos-y-val')
+    const alignSelect = shadow.querySelector('.align')
+    const fontScale = shadow.querySelector('.font-scale')
+    const fontScaleVal = shadow.querySelector('.font-scale-val')
+    const fontFamily = shadow.querySelector('.font-family')
+    const colorInput = shadow.querySelector('.color')
+    const strokeSelect = shadow.querySelector('.stroke')
+    const bgOpacity = shadow.querySelector('.bg-opacity')
+    const bgOpacityVal = shadow.querySelector('.bg-opacity-val')
+    const lineHeight = shadow.querySelector('.line-height')
+    const lineHeightVal = shadow.querySelector('.line-height-val')
+    const boldInput = shadow.querySelector('.bold')
+    const previewSub = shadow.querySelector('#bcc-preview-sub')
+
     let recordedKey = getHotkeyValue()
+
+    /** 读取面板当前的样式值 (未保存) */
+    const readStyleFromPanel = () => ({
+      posY: Number(posY.value),
+      align: alignSelect.value,
+      fontScale: Number(fontScale.value) / 100,
+      fontFamily: fontFamily.value,
+      bold: boldInput.checked,
+      color: colorInput.value,
+      stroke: strokeSelect.value,
+      bgOpacity: Number(bgOpacity.value),
+      lineHeight: Number(lineHeight.value) / 100,
+    })
+
+    /** 预览区按面板当前值实时渲染 */
+    const syncPreview = () => {
+      const style = readStyleFromPanel()
+      posYVal.textContent = `${style.posY}%`
+      fontScaleVal.textContent = `${Math.round(style.fontScale * 100)}%`
+      bgOpacityVal.textContent = `${style.bgOpacity}%`
+      lineHeightVal.textContent = style.lineHeight.toFixed(2)
+
+      if (!previewSub) {
+        return
+      }
+      previewSub.style.bottom = `${style.posY}%`
+      if (style.align === 'center') {
+        previewSub.style.left = '50%'
+        previewSub.style.right = 'auto'
+        previewSub.style.transform = 'translateX(-50%)'
+        previewSub.style.textAlign = 'center'
+      } else if (style.align === 'left') {
+        previewSub.style.left = '6%'
+        previewSub.style.right = 'auto'
+        previewSub.style.transform = 'none'
+        previewSub.style.textAlign = 'left'
+      } else {
+        previewSub.style.left = 'auto'
+        previewSub.style.right = '6%'
+        previewSub.style.transform = 'none'
+        previewSub.style.textAlign = 'right'
+      }
+      previewSub.style.fontSize = `${Math.round(15 * style.fontScale)}px`
+      previewSub.style.fontFamily = FONT_STACK[style.fontFamily]
+      previewSub.style.fontWeight = style.bold ? '700' : '400'
+      previewSub.style.color = style.color
+      previewSub.style.lineHeight = String(style.lineHeight)
+      previewSub.style.textShadow = STROKE_SHADOW[style.stroke]
+      if (style.bgOpacity > 0) {
+        previewSub.style.background = `rgba(0,0,0,${(style.bgOpacity / 100).toFixed(2)})`
+        previewSub.style.padding = '0.12em 0.45em'
+        previewSub.style.borderRadius = '0.18em'
+      } else {
+        previewSub.style.background = 'none'
+        previewSub.style.padding = '0'
+        previewSub.style.borderRadius = '0'
+      }
+    }
+
+    ;[posY, fontScale, bgOpacity, lineHeight].forEach(el => {
+      el.addEventListener('input', syncPreview)
+    })
+    ;[alignSelect, fontFamily, strokeSelect, colorInput, boldInput].forEach(el => {
+      el.addEventListener('input', syncPreview)
+      el.addEventListener('change', syncPreview)
+    })
+
+    shadow.querySelectorAll('.swatch').forEach(btn => {
+      btn.addEventListener('click', () => {
+        colorInput.value = btn.dataset.color || '#ffffff'
+        syncPreview()
+      })
+    })
+
+    shadow.querySelector('.btn-reset').addEventListener('click', () => {
+      posY.value = DEFAULT_STYLE.posY
+      alignSelect.value = DEFAULT_STYLE.align
+      fontScale.value = Math.round(DEFAULT_STYLE.fontScale * 100)
+      fontFamily.value = DEFAULT_STYLE.fontFamily
+      boldInput.checked = DEFAULT_STYLE.bold
+      colorInput.value = DEFAULT_STYLE.color
+      strokeSelect.value = DEFAULT_STYLE.stroke
+      bgOpacity.value = DEFAULT_STYLE.bgOpacity
+      lineHeight.value = Math.round(DEFAULT_STYLE.lineHeight * 100)
+      syncPreview()
+    })
+
+    syncPreview()
 
     const stopRecording = () => {
       if (!recording) {
@@ -1041,8 +1413,12 @@
       store.set(STORE_HUMAN, humanFirst.checked ? '1' : '0')
       store.set(STORE_TIP, tipMode.value)
       store.set(STORE_ENABLED, enabled.checked ? '1' : '0')
+      saveStyle(readStyleFromPanel())
       closeSettings()
-      toast('设置已保存，下次开启字幕生效')
+      if (engine.layer && engine.active) {
+        applyLayerStyle(engine.layer)
+      }
+      toast('设置已保存')
       subtitleCache.clear()
     })
 
@@ -1115,7 +1491,7 @@
 
   window.addEventListener('resize', () => {
     if (engine.layer && engine.active) {
-      engine.layer.style.fontSize = `${layerFontSize(engine.layer)}px`
+      applyLayerStyle(engine.layer)
     }
   })
 
@@ -1123,9 +1499,7 @@
     window.setTimeout(() => {
       if (engine.active) {
         mountLayer()
-        if (engine.layer) {
-          engine.layer.style.fontSize = `${layerFontSize(engine.layer)}px`
-        }
+        applyLayerStyle(engine.layer)
       }
     }, 300)
   })

@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         9527哔哩哔哩CC字幕快捷键
 // @namespace    https://github.com/Godwin9527
-// @version      2.0.0
-// @description  完全独立的 CC 字幕开关：自己拉取字幕并渲染字幕层，不依赖 Bilibili Evolved，也不依赖 B 站字幕按钮，支持自定义按键与语言偏好
+// @version      2.1.0
+// @description  完全独立的 CC 字幕开关：自己拉取字幕并渲染字幕层，不依赖 Bilibili Evolved，也不依赖 B 站字幕按钮，支持自定义按键、语言偏好、字幕位置与字号颜色描边
 // @author       Godwin9527
 // @run-at       document-start
 // @match        https://www.bilibili.com/video/*
