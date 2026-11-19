@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         9527哔哩哔哩CC字幕快捷键
 // @namespace    https://github.com/Godwin9527
-// @version      1.0.3
+// @version      1.0.4
 // @description  独立于 Bilibili Evolved 的 CC 字幕开关键盘快捷键，支持自定义按键、字幕语言偏好、人工字幕优先
 // @author       Godwin9527
 // @run-at       document-start
@@ -242,18 +242,48 @@
 
   /** 派发完整的指针 + 鼠标 + click 事件序列, 尽量贴近真实点击 */
   function fireClickSequence(el) {
-    const opts = { bubbles: true, cancelable: true, view: window, button: 0, buttons: 1 }
+    let x = 0
+    let y = 0
+    try {
+      const rect = el.getBoundingClientRect()
+      x = Math.round(rect.left + rect.width / 2)
+      y = Math.round(rect.top + rect.height / 2)
+    } catch (e) {
+      /* 取不到坐标就用 0 */
+    }
+    const base = {
+      bubbles: true,
+      cancelable: true,
+      view: window,
+      button: 0,
+      clientX: x,
+      clientY: y,
+      screenX: x,
+      screenY: y,
+    }
+    const opts = { ...base, buttons: 1, detail: 1 }
     try {
       if (typeof PointerEvent === 'function') {
-        el.dispatchEvent(new PointerEvent('pointerover', { ...opts, buttons: 0 }))
-        el.dispatchEvent(new PointerEvent('pointerenter', { ...opts, bubbles: false, buttons: 0 }))
-        el.dispatchEvent(new PointerEvent('pointerdown', opts))
+        el.dispatchEvent(
+          new PointerEvent('pointerover', { ...base, buttons: 0, pointerType: 'mouse' }),
+        )
+        el.dispatchEvent(
+          new PointerEvent('pointerenter', {
+            ...base,
+            bubbles: false,
+            buttons: 0,
+            pointerType: 'mouse',
+          }),
+        )
+        el.dispatchEvent(
+          new PointerEvent('pointerdown', { ...opts, pointerType: 'mouse', pressure: 0.5 }),
+        )
       }
-      el.dispatchEvent(new MouseEvent('mouseover', { ...opts, buttons: 0 }))
-      el.dispatchEvent(new MouseEvent('mouseenter', { ...opts, bubbles: false, buttons: 0 }))
+      el.dispatchEvent(new MouseEvent('mouseover', { ...base, buttons: 0 }))
+      el.dispatchEvent(new MouseEvent('mouseenter', { ...base, bubbles: false, buttons: 0 }))
       el.dispatchEvent(new MouseEvent('mousedown', opts))
-      el.dispatchEvent(new MouseEvent('mouseup', { ...opts, buttons: 0 }))
-      el.click()
+      el.dispatchEvent(new MouseEvent('mouseup', { ...base, buttons: 0, detail: 1 }))
+      el.dispatchEvent(new MouseEvent('click', { ...base, buttons: 0, detail: 1 }))
     } catch (e) {
       el.click()
     }
@@ -453,28 +483,205 @@
     return null
   }
 
+  /** 列出对象自身 + 原型链上的方法名 */
+  function listMethods(obj, limit) {
+    const names = []
+    const seen = new Set()
+    let cur = obj
+    let depth = 0
+    while (cur && cur !== Object.prototype && depth < 4) {
+      for (const key of Object.getOwnPropertyNames(cur)) {
+        if (key === 'constructor' || seen.has(key)) {
+          continue
+        }
+        seen.add(key)
+        try {
+          if (typeof obj[key] === 'function') {
+            names.push(key)
+          }
+        } catch (e) {
+          /* getter 抛错时忽略 */
+        }
+      }
+      cur = Object.getPrototypeOf(cur)
+      depth++
+    }
+    return limit ? names.slice(0, limit) : names
+  }
+
+  function readStoreState(store) {
+    if (!store) {
+      return null
+    }
+    try {
+      const state = store.state || store.stateDetails || null
+      return state && typeof state === 'object' ? state : null
+    } catch (e) {
+      return null
+    }
+  }
+
+  /** 汇总播放器内部字幕状态, 不可用时返回 null */
+  function nativeState() {
+    const store = getSubtitleStore()
+    const state = readStoreState(store)
+    if (!store || !state) {
+      return null
+    }
+    const list = Array.isArray(state.languageList) ? state.languageList : []
+    return {
+      store,
+      state,
+      list,
+      on: state.isclosed === false && !!state.lan,
+    }
+  }
+
+  function pickLanFromList(list, preference, humanFirst) {
+    if (!list.length) {
+      return ''
+    }
+    const lanOfItem = item => String(item.lan || '').toLowerCase()
+    const pref = String(preference || '')
+      .trim()
+      .toLowerCase()
+    if (!pref) {
+      return lanOfItem(list[0])
+    }
+    const normalized = pref.replace(/^ai-/, '')
+    const base = normalized.split('-')[0]
+    const isHuman = item => !lanOfItem(item).startsWith('ai-')
+    if (humanFirst) {
+      const exactHuman = list.find(it => lanOfItem(it) === normalized && isHuman(it))
+      if (exactHuman) {
+        return lanOfItem(exactHuman)
+      }
+      const sameBaseHuman = list.find(it => isHuman(it) && lanOfItem(it).split('-')[0] === base)
+      if (sameBaseHuman) {
+        return lanOfItem(sameBaseHuman)
+      }
+    }
+    const exact = list.find(it => lanOfItem(it) === normalized)
+    if (exact) {
+      return lanOfItem(exact)
+    }
+    const ai = list.find(it => lanOfItem(it) === `ai-${base}`)
+    if (ai) {
+      return lanOfItem(ai)
+    }
+    const loose = list.find(it => lanOfItem(it).includes(base))
+    return lanOfItem(loose || list[0])
+  }
+
+  /** 依次尝试匹配的方法与参数, 每次调用后校验是否真的生效 */
+  async function callStore(store, namePattern, argsList, verify) {
+    const names = listMethods(store, 80).filter(name => namePattern.test(name))
+    let calls = 0
+    for (const name of names) {
+      const fn = store[name]
+      if (typeof fn !== 'function') {
+        continue
+      }
+      for (const args of argsList) {
+        if (calls >= 10) {
+          return ''
+        }
+        calls++
+        try {
+          fn.apply(store, args)
+        } catch (e) {
+          continue
+        }
+        await sleep(260)
+        try {
+          if (verify()) {
+            return name
+          }
+        } catch (e) {
+          /* 校验失败继续尝试 */
+        }
+      }
+    }
+    return ''
+  }
+
+  const NATIVE_OPEN_PATTERN = /^(set|switch|change|select|choose|update)(Lan|Language|Subtitle|Config)/i
+  const NATIVE_LOOSE_PATTERN = /lan|subtitle/i
+  const NATIVE_CLOSE_PATTERN = /^(close|hide|off|disable|unset|clear|stop)/i
+
+  /** 通过播放器内部接口开启字幕, 成功返回使用的方法名 */
+  async function nativeOpen() {
+    const native = nativeState()
+    if (!native || !native.list.length) {
+      return ''
+    }
+    const lan = pickLanFromList(
+      native.list,
+      getLangPref() || readPlayerLangPreference(),
+      isHumanFirst(),
+    )
+    if (!lan) {
+      return ''
+    }
+    const item = native.list.find(it => String(it.lan || '').toLowerCase() === lan) || {}
+    const verify = () => {
+      const now = readStoreState(native.store)
+      if (now && now.isclosed === false && String(now.lan || '').toLowerCase() === lan) {
+        return true
+      }
+      return isSubtitleOn()
+    }
+    const argsList = [
+      [{ lan }],
+      [lan],
+      [{ lan, subtitle_url: item.subtitle_url }],
+      [{ lan, subtitle_url: item.subtitle_url, type: item.type }],
+    ]
+    const used = await callStore(native.store, NATIVE_OPEN_PATTERN, argsList, verify)
+    if (used) {
+      return used
+    }
+    return callStore(native.store, NATIVE_LOOSE_PATTERN, argsList, verify)
+  }
+
+  /** 通过播放器内部接口关闭字幕 */
+  async function nativeClose() {
+    const native = nativeState()
+    if (!native) {
+      return ''
+    }
+    const verify = () => {
+      const now = readStoreState(native.store)
+      if (now && now.isclosed === true) {
+        return true
+      }
+      return getState().off === true
+    }
+    const used = await callStore(native.store, NATIVE_CLOSE_PATTERN, [[]], verify)
+    if (used) {
+      return used
+    }
+    return callStore(
+      native.store,
+      NATIVE_OPEN_PATTERN,
+      [[''], [null], [{ lan: '' }]],
+      verify,
+    )
+  }
+
   function describeStore() {
-    const subtitleStore = getSubtitleStore()
-    if (!subtitleStore) {
+    const native = nativeState()
+    if (!native) {
       return '播放器内部接口: 不可用'
     }
-    let state = null
-    try {
-      state = subtitleStore.state || subtitleStore.stateDetails || null
-    } catch (e) {
-      /* 忽略 */
-    }
-    if (!state) {
-      return '播放器内部接口: store 存在, state 读取失败'
-    }
-    const methods = Object.keys(subtitleStore)
-      .filter(k => typeof subtitleStore[k] === 'function')
-      .slice(0, 12)
-      .join(',')
+    const state = native.state
+    const methods = listMethods(native.store, 40).join(',')
     return (
-      `播放器内部接口: store 可用\n` +
+      `播放器内部接口: 可用\n` +
       `lan=${state.lan} isclosed=${state.isclosed} enable=${state.enable}\n` +
-      `languageList=${(state.languageList || []).length} 项\n` +
+      `languageList=${native.list.length} 项: ${native.list
+        .map(it => it.lan)
+        .join(',')}\n` +
       `方法=${methods || '无'}`
     )
   }
@@ -488,7 +695,38 @@
     busy = true
     const trace = []
     try {
-      trace.push('① 展开面板…')
+      // ---- 第一优先: 播放器内部接口。合成点击 B 站不一定认, 内部接口不依赖点击
+      trace.push('① 检查播放器内部字幕接口…')
+      const native = nativeState()
+      if (native) {
+        trace.push(
+          `  可用: 字幕=${native.on ? '已开' : '已关'} lan=${native.state.lan || '-'} 列表=${native.list.length}`,
+        )
+        if (native.on) {
+          const used = await nativeClose()
+          if (used) {
+            trace.push(`② 内部接口关闭成功 (${used})`)
+            debugLog(trace.join('\n'))
+            successTip('字幕已关闭')
+            return
+          }
+        } else {
+          const used = await nativeOpen()
+          if (used) {
+            trace.push(`② 内部接口开启成功 (${used})`)
+            debugLog(trace.join('\n'))
+            const fresh = readStoreState(native.store)
+            const label = String((fresh && fresh.lan) || '')
+            successTip(label ? `字幕已开启（${label}）` : '字幕已开启')
+            return
+          }
+        }
+        trace.push('  内部接口没能完成切换, 改用界面点击')
+      } else {
+        trace.push('  内部接口不可用')
+      }
+
+      trace.push('③ 展开面板…')
       const panelReady = await ensurePanelUsable()
       let state = getState()
       trace.push(
