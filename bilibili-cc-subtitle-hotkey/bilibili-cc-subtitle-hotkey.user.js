@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         9527哔哩哔哩CC字幕快捷键
 // @namespace    https://github.com/Godwin9527
-// @version      1.0.0
+// @version      1.0.1
 // @description  独立于 Bilibili Evolved 的 CC 字幕开关键盘快捷键，支持自定义按键、字幕语言偏好、人工字幕优先
 // @author       Godwin9527
 // @run-at       document-start
@@ -602,14 +602,12 @@
       toast('设置已保存')
     })
 
-    host.addEventListener('click', e => {
-      if (e.target === host) {
-        closeSettings()
-      }
-    })
-
-    shadow.querySelector('.mask').addEventListener('click', e => {
-      if (e.target.classList.contains('mask')) {
+    // 只监听遮罩本身。不能再监听 host:
+    // Shadow DOM 会把内部事件的 target 重定向为 host, 导致面板内任何点击都被判定为「点空白处」
+    const maskElement = shadow.querySelector('.mask')
+    maskElement.addEventListener('click', e => {
+      const origin = typeof e.composedPath === 'function' ? e.composedPath()[0] : e.target
+      if (origin === maskElement) {
         closeSettings()
       }
     })
