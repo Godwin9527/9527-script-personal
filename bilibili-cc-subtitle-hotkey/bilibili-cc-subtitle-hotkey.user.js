@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         9527哔哩哔哩CC字幕快捷键
 // @namespace    https://github.com/Godwin9527
-// @version      2.1.0
-// @description  完全独立的 CC 字幕开关：自己拉取字幕并渲染字幕层，不依赖 Bilibili Evolved，也不依赖 B 站字幕按钮，支持自定义按键、语言偏好、字幕位置与字号颜色描边
+// @version      2.2.0
+// @description  独立于 Bilibili Evolved 的 CC 字幕开关键盘快捷键，直接操作 B 站原生字幕，支持自定义按键、语言偏好、人工字幕优先、进入视频自动关闭字幕
 // @author       Godwin9527
 // @run-at       document-start
 // @match        https://www.bilibili.com/video/*
@@ -15,11 +15,6 @@
 // @grant        GM_setValue
 // @grant        GM_registerMenuCommand
 // @grant        GM_setClipboard
-// @grant        GM_xmlhttpRequest
-// @grant        unsafeWindow
-// @connect      api.bilibili.com
-// @connect      *.hdslb.com
-// @connect      *.bilibili.com
 // @noframes
 // @license      MIT
 // @downloadURL  https://raw.githubusercontent.com/Godwin9527/9527-script-personal/main/bilibili-cc-subtitle-hotkey/bilibili-cc-subtitle-hotkey.user.js
@@ -27,16 +22,17 @@
 // ==/UserScript==
 
 /**
- * 为什么不用 B 站自己的字幕按钮
+ * 设计说明
  * ------------------------------------------------------------------
- * B 站的播放器控制栏只响应真实用户交互。脚本合成的 click / pointer 事件
- * (isTrusted === false) 打在字幕按钮或语言项上, 面板不会初始化, 语言也不会切换。
- * 实测: 新打开页面直接按快捷键毫无反应, 必须先手动点一次字幕按钮, 之后合成点击
- * 才「看起来」生效。player 实例上也没有 setSubtitle 一类 setter
- * (只有 addSubtitle / reloadAccess), __core() 也不再暴露 subtitleStore。
- * 所以脚本改为自己取字幕数据、自己画字幕层, 与 B 站控件彻底解耦。
+ * 用 B 站自己的 CC 字幕, 不另画字幕层。
+ * 面板未渲染时先 hover / 点一次字幕按钮把它唤出来, 再按语言偏好选一项点下去,
+ * 点击后回读 close-switch 的状态确认真的生效, 没有就换点击方式重试。
+ *
+ * 关于「默认关闭」: B 站会恢复上次的字幕状态, 常见表现是新进视频 AI 字幕自己就开了。
+ * 勾选「进入视频时自动关闭字幕」后, 每次进页面 / 切视频都会在 20 秒窗口内盯着,
+ * 一旦发现字幕被打开就立刻关掉; 用户在这期间按过快捷键, 本轮观察直接让位,
+ * 不会出现「手动刚打开又被脚本关掉」。
  */
-
 (function () {
   'use strict'
 
@@ -47,56 +43,19 @@
   const STORE_HUMAN = 'bcc.humanFirst'
   const STORE_TIP = 'bcc.tipMode'
   const STORE_ENABLED = 'bcc.enabled'
-  const STORE_STYLE = 'bcc.style'
+  const STORE_AUTO_OFF = 'bcc.autoOff'
 
   const DEFAULT_HOTKEY = 'shift+c'
   const MODS = ['ctrl', 'alt', 'shift', 'meta']
 
-  /** 字幕外观默认值 */
-  const DEFAULT_STYLE = {
-    posY: 9, // 距播放器底部百分比, 越大越靠上
-    align: 'center', // left | center | right
-    fontScale: 1, // 字号倍率, 1 = 容器高度的 5.2%
-    fontFamily: 'system',
-    bold: true,
-    color: '#ffffff',
-    stroke: 'medium', // none | thin | medium | thick
-    bgOpacity: 0, // 0 = 无背景框
-    lineHeight: 1.35,
-  }
+  const SEL_CLOSE = '.bpx-player-ctrl-subtitle-close-switch'
+  const SEL_BTN = '.bpx-player-ctrl-subtitle'
+  const SEL_MAJOR_ITEM = '.bpx-player-ctrl-subtitle-major .bpx-player-ctrl-subtitle-language-item'
+  const SEL_ANY_ITEM = '.bpx-player-ctrl-subtitle-language-item'
+  const SEL_MINOR = '.bpx-player-ctrl-subtitle-minor'
 
-  const FONT_STACK = {
-    system: '"PingFang SC","Microsoft YaHei","Hiragino Sans GB",Arial,sans-serif',
-    round: '"Source Han Sans SC","Noto Sans SC","HarmonyOS Sans SC","Microsoft YaHei",sans-serif',
-    serif: '"Songti SC","SimSun","Noto Serif SC",serif',
-  }
-
-  const STROKE_SHADOW = {
-    none: 'none',
-    thin: '0 0 2px rgba(0,0,0,.9),0 1px 1px rgba(0,0,0,.9)',
-    medium:
-      '0 0 4px rgba(0,0,0,.95),0 1px 2px rgba(0,0,0,.95),' +
-      '1px 0 1px rgba(0,0,0,.85),-1px 0 1px rgba(0,0,0,.85)',
-    thick:
-      '0 0 2px #000,0 0 3px #000,0 0 5px #000,' +
-      '2px 0 2px #000,-2px 0 2px #000,0 2px 2px #000,0 -2px 2px #000',
-  }
-
-  const LAYER_ID = 'bcc-subtitle-layer'
   const PANEL_ID = 'bcc-panel-host'
   const TOAST_ID = 'bcc-toast'
-
-  /** 页面真实 window。暴力猴带 @grant 时会沙箱化, window 是代理对象 */
-  const pageWindow = (() => {
-    try {
-      if (typeof unsafeWindow !== 'undefined' && unsafeWindow) {
-        return unsafeWindow
-      }
-    } catch (e) {
-      /* 管理器没有 unsafeWindow */
-    }
-    return window
-  })()
 
   // ---------------------------------------------------------------- 存储
 
@@ -105,7 +64,12 @@
   const store = {
     get(key, fallback) {
       try {
-        const value = hasGM ? GM_getValue(key, fallback) : localStorage.getItem(key)
+        let value
+        if (hasGM) {
+          value = GM_getValue(key, fallback)
+        } else {
+          value = localStorage.getItem(key)
+        }
         if (value === undefined || value === null || value === '') {
           return fallback
         }
@@ -122,7 +86,7 @@
           localStorage.setItem(key, String(value))
         }
       } catch (e) {
-        /* 存储失败不影响快捷键 */
+        /* 存储失败不影响快捷键本身 */
       }
     },
   }
@@ -131,53 +95,10 @@
   const getLangPref = () => store.get(STORE_LANG, '')
   const isHumanFirst = () => store.get(STORE_HUMAN, '1') !== '0'
   const getTipMode = () => store.get(STORE_TIP, 'auto')
+  const isAutoOff = () => store.get(STORE_AUTO_OFF, '1') !== '0'
 
   function getHotkeyValue() {
     return store.get(STORE_KEY, DEFAULT_HOTKEY)
-  }
-
-  function clampNumber(value, min, max, fallback) {
-    const number = Number(value)
-    if (!Number.isFinite(number)) {
-      return fallback
-    }
-    return Math.min(max, Math.max(min, number))
-  }
-
-  /** 读取字幕外观配置, 并逐项兜底 */
-  function getStyle() {
-    const raw = store.get(STORE_STYLE, '')
-    let parsed = null
-    if (raw) {
-      try {
-        parsed = typeof raw === 'string' ? JSON.parse(raw) : raw
-      } catch (e) {
-        parsed = null
-      }
-    }
-    const merged = Object.assign({}, DEFAULT_STYLE, parsed && typeof parsed === 'object' ? parsed : {})
-    merged.posY = clampNumber(merged.posY, 2, 45, DEFAULT_STYLE.posY)
-    merged.fontScale = clampNumber(merged.fontScale, 0.5, 2.5, DEFAULT_STYLE.fontScale)
-    merged.bgOpacity = clampNumber(merged.bgOpacity, 0, 100, DEFAULT_STYLE.bgOpacity)
-    merged.lineHeight = clampNumber(merged.lineHeight, 1.05, 2.2, DEFAULT_STYLE.lineHeight)
-    if (!['left', 'center', 'right'].includes(merged.align)) {
-      merged.align = DEFAULT_STYLE.align
-    }
-    if (!FONT_STACK[merged.fontFamily]) {
-      merged.fontFamily = DEFAULT_STYLE.fontFamily
-    }
-    if (!STROKE_SHADOW[merged.stroke]) {
-      merged.stroke = DEFAULT_STYLE.stroke
-    }
-    if (!/^#[0-9a-f]{6}$/i.test(String(merged.color))) {
-      merged.color = DEFAULT_STYLE.color
-    }
-    merged.bold = merged.bold !== false && merged.bold !== 'false'
-    return merged
-  }
-
-  function saveStyle(style) {
-    store.set(STORE_STYLE, JSON.stringify(style))
   }
 
   // ---------------------------------------------------------------- 工具
@@ -233,12 +154,16 @@
     return mods.concat(keys).join('+')
   }
 
-  function escapeHtml(text) {
-    return String(text == null ? '' : text)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
+  async function waitFor(selector, timeout, interval) {
+    const limit = timeout || 800
+    const step = interval || 50
+    const end = Date.now() + limit
+    let el = document.querySelector(selector)
+    while (!el && Date.now() < end) {
+      await sleep(step)
+      el = document.querySelector(selector)
+    }
+    return el
   }
 
   // ---------------------------------------------------------------- 提示
@@ -272,7 +197,8 @@
   }
 
   function successTip(text) {
-    if (getTipMode() === 'self') {
+    const mode = getTipMode()
+    if (mode === 'self') {
       toast(text)
     }
   }
@@ -299,216 +225,76 @@
     }
     el.textContent = text
     clearTimeout(el._t)
-    el._t = window.setTimeout(() => el.remove(), 15000)
+    el._t = window.setTimeout(() => el.remove(), 12000)
   }
 
-  // ---------------------------------------------------------------- 网络
+  // ---------------------------------------------------------------- 字幕控制
 
-  function httpGet(url) {
-    return new Promise((resolve, reject) => {
-      const done = text => resolve(text)
-      if (typeof GM_xmlhttpRequest === 'function') {
-        try {
-          GM_xmlhttpRequest({
-            method: 'GET',
-            url,
-            timeout: 9000,
-            onload: res => {
-              if (res.status >= 200 && res.status < 300) {
-                done(res.responseText)
-              } else {
-                reject(new Error(`HTTP ${res.status}`))
-              }
-            },
-            onerror: () => reject(new Error('network error')),
-            ontimeout: () => reject(new Error('timeout')),
-          })
-          return
-        } catch (e) {
-          /* 退回 fetch */
-        }
-      }
-      fetch(url, { credentials: 'include' })
-        .then(res => {
-          if (!res.ok) {
-            throw new Error(`HTTP ${res.status}`)
-          }
-          return res.text()
-        })
-        .then(done)
-        .catch(reject)
-    })
+  function isVisible(el) {
+    if (!el || !el.isConnected) {
+      return false
+    }
+    const rect = el.getBoundingClientRect()
+    if (rect.width === 0 && rect.height === 0) {
+      return false
+    }
+    const style = window.getComputedStyle(el)
+    return style.visibility !== 'hidden' && style.display !== 'none'
   }
 
-  function httpJson(url) {
-    return httpGet(url).then(text => {
-      try {
-        return JSON.parse(text)
-      } catch (e) {
-        throw new Error('返回不是 JSON')
-      }
-    })
+  function queryItems() {
+    let items = Array.from(document.querySelectorAll(SEL_MAJOR_ITEM))
+    if (!items.length) {
+      const box = document.querySelector('.bpx-player-ctrl-subtitle-box') || document
+      items = Array.from(box.querySelectorAll(SEL_ANY_ITEM)).filter(
+        el => !el.closest(SEL_MINOR),
+      )
+    }
+    const visible = items.filter(isVisible)
+    return visible.length ? visible : items
   }
 
-  // ---------------------------------------------------------------- 视频信息
-
-  function queryParam(name) {
+  /** 派发完整的指针 + 鼠标 + click 事件序列, 尽量贴近真实点击 */
+  function fireClickSequence(el) {
+    const opts = { bubbles: true, cancelable: true, view: window, button: 0, buttons: 1 }
     try {
-      return new URLSearchParams(location.search).get(name) || ''
+      if (typeof PointerEvent === 'function') {
+        el.dispatchEvent(new PointerEvent('pointerover', { ...opts, buttons: 0 }))
+        el.dispatchEvent(new PointerEvent('pointerenter', { ...opts, bubbles: false, buttons: 0 }))
+        el.dispatchEvent(new PointerEvent('pointerdown', opts))
+      }
+      el.dispatchEvent(new MouseEvent('mouseover', { ...opts, buttons: 0 }))
+      el.dispatchEvent(new MouseEvent('mouseenter', { ...opts, bubbles: false, buttons: 0 }))
+      el.dispatchEvent(new MouseEvent('mousedown', opts))
+      el.dispatchEvent(new MouseEvent('mouseup', { ...opts, buttons: 0 }))
+      el.click()
     } catch (e) {
-      return ''
+      el.click()
     }
   }
 
-  function bvidFromUrl() {
-    const matched = location.pathname.match(/\/video\/(BV[0-9A-Za-z]+)/)
-    return matched ? matched[1] : ''
-  }
-
-  /** 从页面状态里取 bvid / cid / ep_id, 取不到再退回接口 */
-  async function resolveVideo() {
-    const info = { bvid: '', cid: 0, epId: 0, title: '' }
-    let state = null
-    try {
-      state = pageWindow.__INITIAL_STATE__ || null
-    } catch (e) {
-      state = null
-    }
-    if (state) {
-      try {
-        const vd = state.videoData || {}
-        info.bvid = vd.bvid || state.bvid || ''
-        info.cid = Number(vd.cid || state.cid || 0)
-        info.title = vd.title || ''
-        if (state.epInfo) {
-          info.epId = Number(state.epInfo.ep_id || 0)
-          info.cid = Number(state.epInfo.cid || info.cid || 0)
-          info.title = info.title || state.epInfo.share_copy || ''
-        }
-        if (state.h1Title) {
-          info.title = info.title || String(state.h1Title)
-        }
-      } catch (e) {
-        /* 页面状态结构变化时忽略 */
-      }
-    }
-    if (!info.bvid) {
-      info.bvid = bvidFromUrl()
-    }
-    // 多 P 时以 URL 的 p 为准, 页面状态里的 cid 未必跟着切
-    const p = Number(queryParam('p') || 1)
-    if (info.bvid && (p > 1 || !info.cid)) {
-      try {
-        const json = await httpJson(
-          `https://api.bilibili.com/x/web-interface/view?bvid=${encodeURIComponent(info.bvid)}`,
-        )
-        const data = json && json.data
-        if (data) {
-          const pages = Array.isArray(data.pages) ? data.pages : []
-          const page = pages[p - 1]
-          if (page && page.cid) {
-            info.cid = Number(page.cid)
-          } else if (data.cid) {
-            info.cid = Number(data.cid)
-          }
-          info.title = info.title || data.title || ''
-        }
-      } catch (e) {
-        /* 取不到就用页面状态里的 cid */
-      }
-    }
-    return info
-  }
-
-  // ---------------------------------------------------------------- 字幕数据
-
-  const subtitleCache = new Map()
-
-  function cacheKeyOf(info) {
-    return `${info.bvid}|${info.cid}|${info.epId}`
-  }
-
-  /** 拉字幕列表 */
-  async function fetchSubtitleList(info) {
-    const params = new URLSearchParams()
-    if (info.bvid) {
-      params.set('bvid', info.bvid)
-    }
-    if (info.cid) {
-      params.set('cid', String(info.cid))
-    }
-    if (info.epId) {
-      params.set('ep_id', String(info.epId))
-    }
-    const json = await httpJson(
-      `https://api.bilibili.com/x/player/v2?${params.toString()}`,
-    )
-    if (!json || json.code !== 0 || !json.data) {
-      throw new Error(`接口返回 code=${json && json.code}`)
-    }
-    const subtitle = json.data.subtitle || {}
-    const list = Array.isArray(subtitle.subtitles) ? subtitle.subtitles : []
-    return list
-      .filter(item => item && item.subtitle_url)
-      .map(item => ({
-        lan: String(item.lan || '').toLowerCase(),
-        lanDoc: String(item.lan_doc || ''),
-        url: normalUrl(item.subtitle_url),
-      }))
-  }
-
-  function normalUrl(url) {
-    const text = String(url || '')
-    if (!text) {
-      return ''
-    }
-    if (text.startsWith('//')) {
-      return `https:${text}`
-    }
-    if (text.startsWith('http')) {
-      return text
-    }
-    return `https://${text}`
-  }
-
-  /** 拉字幕正文, 解析成按时间排序的 cue */
-  async function fetchSubtitleBody(url) {
-    const json = await httpJson(url)
-    const body = Array.isArray(json && json.body) ? json.body : []
-    const cues = []
-    for (const item of body) {
-      const from = Number(item.from)
-      const to = Number(item.to)
-      const content = String(item.content == null ? '' : item.content).trim()
-      if (!content || !Number.isFinite(from) || !Number.isFinite(to)) {
-        continue
-      }
-      cues.push({ from, to, content })
-    }
-    cues.sort((a, b) => a.from - b.from)
-    return cues
-  }
-
-  /** 读取 B 站播放器保存的字幕语言偏好 */
+  /** 读取 B 站播放器保存的字幕语言偏好 (bpx_player_profile → subtitle.preferred_language / subtitle.lan) */
   function readPlayerLangPreference() {
-    for (const storageKey of ['bpx_player_profile', 'bilibili_player_settings']) {
+    const keys = ['bpx_player_profile', 'bilibili_player_settings']
+    for (const storageKey of keys) {
       try {
         const raw = localStorage.getItem(storageKey)
         if (!raw) {
           continue
         }
-        const found = findSubtitleConfig(JSON.parse(raw), 0)
-        if (!found) {
+        const profile = JSON.parse(raw)
+        const subtitle = findSubtitleConfig(profile, 0)
+        if (!subtitle) {
           continue
         }
-        if (typeof found.preferred_language === 'string' && found.preferred_language) {
-          return found.preferred_language
+        if (typeof subtitle.preferred_language === 'string' && subtitle.preferred_language) {
+          return subtitle.preferred_language
         }
-        if (typeof found.lan === 'string' && found.lan) {
-          return found.lan
+        if (typeof subtitle.lan === 'string' && subtitle.lan) {
+          return subtitle.lan
         }
       } catch (e) {
-        /* 配置损坏时继续下一个来源 */
+        /* 配置损坏时忽略, 继续尝试下一个来源 */
       }
     }
     return ''
@@ -530,419 +316,368 @@
     return null
   }
 
+  function lanOf(el) {
+    return String(el.dataset.lan || el.getAttribute('data-lan') || '').toLowerCase()
+  }
+
   /**
    * 语言匹配优先级:
-   * 1. 同语言的人工字幕 (人工优先开启时)
-   * 2. 同基础语言的人工字幕 (人工优先开启时)
-   * 3. 完全匹配 (含 ai- 前缀完全一致)
-   * 4. 该语言的 AI 字幕
-   * 5. 包含该基础语言的任意字幕
+   * 1. 目标语言的同语言人工字幕 (humanFirst 开启时)
+   * 2. 同基础语言的任意人工字幕 (humanFirst 开启时)
+   * 3. 完全匹配的语言 (含 ai- 前缀)
+   * 4. 目标语言的 AI 字幕
+   * 5. 包含目标基础语言的任意字幕
    * 6. 第一个可选字幕
    */
-  function pickSubtitle(list, preference, humanFirst) {
-    if (!list.length) {
+  function pickSubtitleItem(items, preference, humanFirst) {
+    if (!items.length) {
       return null
     }
     const pref = String(preference || '')
       .trim()
       .toLowerCase()
     if (!pref) {
-      return list[0]
+      return items[0]
     }
     const normalized = pref.replace(/^ai-/, '')
     const base = normalized.split('-')[0]
-    const isHuman = item => !item.lan.startsWith('ai-')
+    const isHuman = el => !lanOf(el).startsWith('ai-')
 
     if (humanFirst) {
-      const exactHuman = list.find(it => it.lan === normalized && isHuman(it))
+      const exactHuman = items.find(el => lanOf(el) === normalized && isHuman(el))
       if (exactHuman) {
         return exactHuman
       }
-      const sameBaseHuman = list.find(it => isHuman(it) && it.lan.split('-')[0] === base)
+      const sameBaseHuman = items.find(
+        el => isHuman(el) && lanOf(el).split('-')[0] === base,
+      )
       if (sameBaseHuman) {
         return sameBaseHuman
       }
     }
-    const exact = list.find(it => it.lan === normalized)
+    const exact = items.find(el => lanOf(el) === normalized)
     if (exact) {
       return exact
     }
-    const ai = list.find(it => it.lan === `ai-${base}`)
+    const ai = items.find(el => lanOf(el) === `ai-${base}`)
     if (ai) {
       return ai
     }
-    const loose = list.find(it => it.lan.includes(base))
+    const loose = items.find(el => lanOf(el).includes(base))
     if (loose) {
       return loose
     }
-    return list[0]
+    return items[0]
   }
 
-  // ---------------------------------------------------------------- 字幕引擎
-
-  const engine = {
-    active: false,
-    layer: null,
-    cues: [],
-    index: 0,
-    raf: 0,
-    key: '',
-    lan: '',
-    lanDoc: '',
-    hideStyle: null,
-    loading: false,
-    lastError: '',
-  }
-
-  function videoElement() {
-    return document.querySelector('.bpx-player-video-wrap video') || document.querySelector('video')
-  }
-
-  function playerContainer() {
-    return (
-      document.querySelector('.bpx-player-container') ||
-      document.querySelector('#bilibili-player') ||
-      document.querySelector('#playerWrap') ||
-      document.querySelector('.bpx-player-video-area')
-    )
-  }
-
-  function layerFontSize(layer, scale) {
-    const container = layer.parentElement
-    const height = container ? container.getBoundingClientRect().height : 0
-    const ratio = scale == null ? getStyle().fontScale : scale
-    const size = Math.round((height || 540) * 0.052 * ratio)
-    return Math.max(11, Math.min(72, size))
-  }
-
-  /** 把外观配置写到字幕层上 */
-  function applyLayerStyle(layer) {
-    if (!layer) {
-      return
-    }
-    const style = getStyle()
-    layer.style.bottom = `${style.posY}%`
-    layer.style.maxWidth = '86%'
-    layer.style.boxSizing = 'border-box'
-    if (style.align === 'center') {
-      layer.style.left = '50%'
-      layer.style.right = 'auto'
-      layer.style.transform = 'translateX(-50%)'
-      layer.style.textAlign = 'center'
-    } else if (style.align === 'left') {
-      layer.style.left = '6%'
-      layer.style.right = 'auto'
-      layer.style.transform = 'none'
-      layer.style.textAlign = 'left'
-    } else {
-      layer.style.left = 'auto'
-      layer.style.right = '6%'
-      layer.style.transform = 'none'
-      layer.style.textAlign = 'right'
-    }
-    layer.style.fontSize = `${layerFontSize(layer, style.fontScale)}px`
-    layer.style.fontFamily = FONT_STACK[style.fontFamily]
-    layer.style.fontWeight = style.bold ? '700' : '400'
-    layer.style.color = style.color
-    layer.style.lineHeight = String(style.lineHeight)
-    layer.style.textShadow = STROKE_SHADOW[style.stroke]
-    if (style.bgOpacity > 0) {
-      layer.style.background = `rgba(0,0,0,${(style.bgOpacity / 100).toFixed(2)})`
-      layer.style.padding = '0.12em 0.45em'
-      layer.style.borderRadius = '0.18em'
-    } else {
-      layer.style.background = 'none'
-      layer.style.padding = '0'
-      layer.style.borderRadius = '0'
-    }
-  }
-
-  function mountLayer() {
-    if (engine.layer && engine.layer.isConnected) {
-      applyLayerStyle(engine.layer)
-      return engine.layer
-    }
-    const container = playerContainer()
-    if (!container) {
-      return null
-    }
-    if (window.getComputedStyle(container).position === 'static') {
-      container.style.position = 'relative'
-    }
-    const layer = document.createElement('div')
-    layer.id = LAYER_ID
-    layer.style.cssText =
-      'position:absolute;pointer-events:none;z-index:60;' +
-      'white-space:pre-wrap;word-break:break-word;display:none;'
-    container.appendChild(layer)
-    engine.layer = layer
-    applyLayerStyle(layer)
-    return layer
-  }
-
-  /** 自己的字幕显示时, 把 B 站原生字幕层藏起来, 避免叠加重影 */
-  function toggleNativeSubtitle(hide) {
-    if (hide) {
-      if (!engine.hideStyle || !engine.hideStyle.isConnected) {
-        const style = document.createElement('style')
-        style.id = 'bcc-hide-native-subtitle'
-        style.textContent =
-          '#bpx-player-subtitle-panel,.bpx-player-subtitle-panel,' +
-          '.bpx-player-subtitle-wrap .bpx-player-subtitle-panel-text{' +
-          'display:none !important;}'
-        document.documentElement.appendChild(style)
-        engine.hideStyle = style
-      }
-    } else if (engine.hideStyle && engine.hideStyle.isConnected) {
-      engine.hideStyle.remove()
-      engine.hideStyle = null
-    }
-  }
-
-  function currentCueText(time) {
-    const cues = engine.cues
-    if (!cues.length) {
-      return ''
-    }
-    let idx = engine.index
-    if (idx >= cues.length) {
-      idx = cues.length - 1
-    }
-    while (idx + 1 < cues.length && cues[idx + 1].from <= time) {
-      idx++
-    }
-    while (idx > 0 && cues[idx].from > time) {
-      idx--
-    }
-    engine.index = idx
-    const cue = cues[idx]
-    if (cue && time >= cue.from && time < cue.to) {
-      return cue.content
-    }
-    return ''
-  }
-
-  function tick() {
-    if (!engine.active) {
-      return
-    }
-    const layer = engine.layer
-    const video = videoElement()
-    if (layer && video) {
-      const text = currentCueText(video.currentTime)
-      if (layer.textContent !== text) {
-        layer.textContent = text
-      }
-      if (layer.style.fontSize === '') {
-        applyLayerStyle(layer)
-      }
-    }
-    engine.raf = window.requestAnimationFrame(tick)
-  }
-
-  function startLoop() {
-    if (engine.raf) {
-      return
-    }
-    engine.raf = window.requestAnimationFrame(tick)
-  }
-
-  function stopLoop() {
-    if (engine.raf) {
-      window.cancelAnimationFrame(engine.raf)
-      engine.raf = 0
-    }
-  }
-
-  /** 加载字幕数据, 结果缓存在当前 cid 上 */
-  async function ensureData() {
-    if (engine.loading) {
-      throw new Error('正在加载字幕')
-    }
-    engine.loading = true
-    engine.lastError = ''
+  /** 只派发 hover 相关事件, 用于展开字幕面板 */
+  function fireHover(el) {
+    const opts = { bubbles: true, cancelable: true, view: window, button: 0, buttons: 0 }
     try {
-      const info = await resolveVideo()
-      if (!info.cid && !info.bvid) {
-        throw new Error('取不到当前视频的 cid')
+      if (typeof PointerEvent === 'function') {
+        el.dispatchEvent(new PointerEvent('pointerover', opts))
+        el.dispatchEvent(new PointerEvent('pointerenter', { ...opts, bubbles: false }))
       }
-      const key = cacheKeyOf(info)
-      let cached = subtitleCache.get(key)
-      if (!cached) {
-        const list = await fetchSubtitleList(info)
-        if (!list.length) {
-          throw new Error('EMPTY')
-        }
-        const preference = getLangPref() || readPlayerLangPreference()
-        const target = pickSubtitle(list, preference, isHumanFirst())
-        const cues = await fetchSubtitleBody(target.url)
-        if (!cues.length) {
-          throw new Error('EMPTY')
-        }
-        cached = {
-          list,
-          cues,
-          lan: target.lan,
-          lanDoc: target.lanDoc || target.lan,
-        }
-        subtitleCache.set(key, cached)
-      }
-      engine.cues = cached.cues
-      engine.index = 0
-      engine.key = key
-      engine.lan = cached.lan
-      engine.lanDoc = cached.lanDoc
-      return cached
-    } finally {
-      engine.loading = false
+      el.dispatchEvent(new MouseEvent('mouseover', opts))
+      el.dispatchEvent(new MouseEvent('mouseenter', { ...opts, bubbles: false }))
+      el.dispatchEvent(new MouseEvent('mousemove', opts))
+    } catch (e) {
+      /* 事件构造失败时忽略 */
     }
   }
 
-  function showLayer() {
-    const layer = mountLayer()
-    if (!layer) {
+  /**
+   * 读取当前字幕状态。
+   * off === true  关闭字幕这一项处于选中态, 也就是字幕当前是关的
+   * off === null  面板还没渲染
+   */
+  function getState() {
+    const closeSwitch = document.querySelector(SEL_CLOSE)
+    if (!closeSwitch) {
+      return { closeSwitch: null, off: null, items: [] }
+    }
+    return {
+      closeSwitch,
+      off: closeSwitch.classList.contains('bpx-state-active'),
+      items: queryItems(),
+    }
+  }
+
+  /** 字幕是否已开启: 关闭开关不亮, 或任一语言项处于选中态 */
+  function isSubtitleOn() {
+    const state = getState()
+    if (!state.closeSwitch) {
       return false
     }
-    engine.active = true
-    applyLayerStyle(layer)
-    layer.style.display = 'block'
-    toggleNativeSubtitle(true)
-    startLoop()
-    return true
+    if (state.off === false) {
+      return true
+    }
+    return !!document.querySelector(`${SEL_ANY_ITEM}.bpx-state-active`)
   }
 
-  function hideLayer() {
-    engine.active = false
-    stopLoop()
-    if (engine.layer) {
-      engine.layer.style.display = 'none'
-      engine.layer.textContent = ''
+  /**
+   * 确保面板可用。
+   * B 站把字幕面板做成了按需创建: 没点过按钮时整个面板都不在 DOM 里,
+   * 这时任何点击都不会有反应。先 hover 尝试展开, 不行再真实点一次按钮。
+   */
+  async function ensurePanelUsable() {
+    if (document.querySelector(SEL_CLOSE)) {
+      return true
     }
-    toggleNativeSubtitle(false)
+    const candidates = []
+    const push = el => {
+      if (el && !candidates.includes(el)) {
+        candidates.push(el)
+      }
+    }
+    push(await waitFor(SEL_BTN, 1200))
+    push(document.querySelector('[aria-label="字幕"]'))
+    if (candidates[0] && candidates[0].parentElement) {
+      push(candidates[0].parentElement)
+    }
+    for (const el of candidates) {
+      fireHover(el)
+      if (await waitFor(SEL_CLOSE, 350)) {
+        return true
+      }
+      fireClickSequence(el)
+      if (await waitFor(SEL_CLOSE, 900)) {
+        return true
+      }
+    }
+    return false
   }
+
+  let busy = false
+  /** 用户最后一次手动切换字幕的时间, 自动关闭据此让位 */
+  let userToggledAt = 0
 
   async function toggleSubtitle() {
-    if (engine.active) {
-      hideLayer()
-      successTip('字幕已关闭')
+    if (busy) {
       return
     }
-    if (engine.loading) {
-      return
-    }
+    userToggledAt = Date.now()
+    busy = true
+    const trace = []
     try {
-      const cached = await ensureData()
-      if (!showLayer()) {
-        engine.lastError = '没有找到播放器容器'
-        toast('没有找到播放器，请等视频加载后再按')
+      trace.push('① 展开面板…')
+      const panelReady = await ensurePanelUsable()
+      let state = getState()
+      trace.push(
+        `② 面板=${panelReady ? '已就绪' : '未就绪'} 关闭态=${state.off} 语言项=${state.items.length}`,
+      )
+
+      if (!state.closeSwitch) {
+        const btn = document.querySelector(SEL_BTN)
+        trace.push(`② 面板没有渲染出来 (字幕按钮=${btn ? '存在' : '不存在'})`)
+        if (!btn) {
+          toast('当前视频没有字幕')
+          return
+        }
+        reportFailure(trace)
         return
       }
-      successTip(`字幕已开启（${cached.lanDoc}）`)
-      debugLog(`字幕已开启 lan=${cached.lan} 条数=${cached.cues.length}`)
-    } catch (e) {
-      const message = String((e && e.message) || e)
-      engine.lastError = message
-      if (message === 'EMPTY') {
-        toast('当前视频没有可用字幕')
-      } else if (message === '正在加载字幕') {
+
+      // ---- 关闭分支
+      if (!state.off) {
+        for (let i = 0; i < 4; i++) {
+          const close = document.querySelector(SEL_CLOSE)
+          if (!close) {
+            break
+          }
+          close.click()
+          await sleep(280)
+          if (getState().off === true) {
+            trace.push(`③ 已关闭字幕 (第 ${i + 1} 次点击生效)`)
+            debugLog(trace.join('\n'))
+            successTip('字幕已关闭')
+            return
+          }
+        }
+        trace.push('③ 关闭失败: 点击关闭开关后状态没有变化')
+        reportFailure(trace)
         return
-      } else {
-        toast(`字幕加载失败：${message}`)
       }
-      debugLog(`字幕加载失败: ${message}`, true)
+
+      // ---- 开启分支
+      const preference = getLangPref() || readPlayerLangPreference()
+      const humanFirst = isHumanFirst()
+      trace.push(`偏好=${preference || '(无)'} 人工优先=${humanFirst}`)
+
+      let sawItems = false
+      for (let round = 0; round < 6; round++) {
+        if (!document.querySelector(SEL_CLOSE)) {
+          await ensurePanelUsable()
+        }
+        const items = queryItems()
+        if (!items.length) {
+          trace.push(`  第${round + 1}轮: 还没有语言项, 等待`)
+          await sleep(280)
+          continue
+        }
+        sawItems = true
+        const target = pickSubtitleItem(items, preference, humanFirst)
+        if (!target) {
+          trace.push(`  第${round + 1}轮: 语言匹配为空`)
+          break
+        }
+        const lan = lanOf(target)
+        // 第 1 轮纯 click; 第 2 轮完整事件序列; 之后点内部文本节点
+        if (round === 0) {
+          target.click()
+        } else if (round === 1) {
+          fireClickSequence(target)
+        } else {
+          const inner = target.querySelector('span, .name, div') || target
+          ;(inner || target).click()
+        }
+        await sleep(320)
+        if (isSubtitleOn()) {
+          trace.push(`  第${round + 1}轮: 点 ${lan} 生效`)
+          debugLog(trace.join('\n'))
+          const label = (target.textContent || '').trim()
+          successTip(label ? `字幕已开启（${label}）` : '字幕已开启')
+          return
+        }
+        trace.push(`  第${round + 1}轮: 点 ${lan} 无效, 重试`)
+        await sleep(220)
+      }
+
+      if (!sawItems) {
+        trace.push('③ 面板里始终没有语言项')
+        toast('当前视频没有可选字幕')
+        debugLog(trace.join('\n'), true)
+        return
+      }
+
+      trace.push('③ 开启失败: 6 轮点击都没有生效')
+      reportFailure(trace)
+    } finally {
+      busy = false
     }
   }
 
-  /** 视频页切换 (SPA) 时重置状态 */
-  function resetForNewVideo() {
-    hideLayer()
-    engine.cues = []
-    engine.index = 0
-    engine.key = ''
-    engine.lan = ''
-    engine.lanDoc = ''
-    engine.lastError = ''
+  // ---------------------------------------------------------------- 自动关闭
+
+  /** 观察窗口: B 站会在视频加载后把上次的字幕状态恢复成「开」, 需要持续盯着 */
+  const AUTO_OFF_DURATION = 20000
+  const AUTO_OFF_INTERVAL = 600
+
+  let autoOffToken = 0
+
+  /**
+   * 进入视频后把字幕关掉。
+   * 只在真正检测到「字幕已开」时动作一次, 成功后立刻结束本轮;
+   * 用户在观察窗口内按过快捷键, 就整轮让位, 不再插手。
+   */
+  async function autoOffWatch(reason) {
+    const token = ++autoOffToken
+    if (!isAutoOff() || !isEnabled()) {
+      return
+    }
+    const startedAt = Date.now()
+    let attempts = 0
+    while (Date.now() - startedAt < AUTO_OFF_DURATION) {
+      if (token !== autoOffToken || !isAutoOff()) {
+        return
+      }
+      if (userToggledAt > startedAt) {
+        return
+      }
+      const state = getState()
+      if (state.closeSwitch && state.off === false) {
+        attempts++
+        state.closeSwitch.click()
+        await sleep(260)
+        if (token !== autoOffToken) {
+          return
+        }
+        if (getState().off === true) {
+          console.log('[bcc] 已自动关闭字幕', reason)
+          return
+        }
+        // 连点几次都没反应就收手, 避免在面板异常时反复点击
+        if (attempts >= 3) {
+          console.log('[bcc] 自动关闭失败, 已停止重试')
+          return
+        }
+      }
+      await sleep(AUTO_OFF_INTERVAL)
+    }
+  }
+
+  /** 等播放器渲染出来再开始观察, 避免在 DOM 还没就绪时白白耗掉窗口 */
+  function startAutoOff(reason) {
+    if (!isAutoOff() || !isEnabled()) {
+      return
+    }
+    window.setTimeout(() => {
+      autoOffWatch(reason)
+    }, 800)
+  }
+
+  function whenDomReady(fn) {
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', fn, { once: true })
+    } else {
+      fn()
+    }
   }
 
   // ---------------------------------------------------------------- 诊断
 
+
   function buildDiagnostics() {
-    const info = { bvid: bvidFromUrl(), cid: 0, epId: 0 }
-    try {
-      const state = pageWindow.__INITIAL_STATE__ || {}
-      const vd = state.videoData || {}
-      info.cid = Number(vd.cid || state.cid || 0)
-      if (state.epInfo) {
-        info.epId = Number(state.epInfo.ep_id || 0)
-        info.cid = Number(state.epInfo.cid || info.cid || 0)
+    const state = getState()
+    const allPanels = document.querySelectorAll(SEL_BTN).length
+    const allItems = document.querySelectorAll(SEL_ANY_ITEM).length
+    const majorItems = document.querySelectorAll(SEL_MAJOR_ITEM).length
+    const visibleItems = queryItems().filter(isVisible).length
+    const rect = el => {
+      if (!el) {
+        return 'none'
       }
-    } catch (e) {
-      /* 忽略 */
+      const r = el.getBoundingClientRect()
+      return `${Math.round(r.width)}x${Math.round(r.height)} @${Math.round(r.left)},${Math.round(r.top)}`
     }
-    const st = getStyle()
     const lines = [
       `版本: ${
         typeof GM_info !== 'undefined' && GM_info.script ? GM_info.script.version : 'unknown'
       }`,
       `URL: ${location.href}`,
-      `沙箱: unsafeWindow=${pageWindow !== window ? '可用' : '不可用(退回 window)'}`,
-      `视频: bvid=${info.bvid || '-'} cid=${info.cid || '-'} ep=${info.epId || '-'} p=${queryParam('p') || '1'}`,
-      `播放器容器: ${playerContainer() ? '存在' : '不存在'}`,
-      `video 元素: ${videoElement() ? '存在' : '不存在'}`,
-      `字幕层: ${engine.layer && engine.layer.isConnected ? '已挂载' : '未挂载'}`,
-      `当前状态: ${engine.active ? '已开启' : '已关闭'}`,
-      `当前字幕: ${engine.lan || '-'} (${engine.lanDoc || '-'}) 共 ${engine.cues.length} 条`,
-      `字幕样式: 位置=${st.posY}% ${st.align} 字号=${Math.round(st.fontScale * 100)}% 颜色=${
-        st.color
-      } 背景=${st.bgOpacity}%`,
-      `缓存视频数: ${subtitleCache.size}`,
-      `最近错误: ${engine.lastError || '无'}`,
-      `已缓存字幕: ${
-        Array.from(subtitleCache.keys())
-          .map(key => (key.length > 60 ? `${key.slice(0, 60)}…` : key))
-          .join(' / ') || '无'
-      }`,
+      `字幕按钮节点: ${allPanels} 个, rect=${rect(document.querySelector(SEL_BTN))}`,
+      `close-switch: ${state.closeSwitch ? '存在' : '不存在'} rect=${rect(state.closeSwitch)}`,
+      `close-switch class: ${state.closeSwitch ? String(state.closeSwitch.className) : '-'}`,
+      `语言项: 全部 ${allItems} / major ${majorItems} / 可见 ${visibleItems}`,
+      `语言项 lan: ${queryItems().map(el => lanOf(el)).join(', ') || '(空)'}`,
+      `字幕文本层: ${document.querySelectorAll('.bpx-player-subtitle-wrap').length} 个`,
+      `当前判定: ${state.off === null ? '面板未渲染' : state.off ? '字幕已关' : '字幕已开'}`,
+      `自动关闭: ${isAutoOff() ? '开启' : '关闭'}`,
     ]
     return lines.join('\n')
   }
 
-  function copyDiagnostics() {
-    const text = buildDiagnostics()
+  /** 失败时把完整现场打印出来并尝试自动复制, 减少来回排查 */
+  function reportFailure(trace) {
+    const text = trace.join('\n') + '\n---- 现场 ----\n' + buildDiagnostics()
+    debugLog(text, true)
+    console.log('[bcc] 切换失败\n' + text)
     try {
       if (typeof GM_setClipboard === 'function') {
         GM_setClipboard(text, 'text')
-      } else {
-        const area = document.createElement('textarea')
-        area.value = text
-        area.style.cssText = 'position:fixed;left:-9999px;top:0;'
-        document.body.appendChild(area)
-        area.select()
-        document.execCommand('copy')
-        area.remove()
+        toast('字幕没有切换成功，诊断信息已复制到剪贴板')
+        return
       }
-      toast('诊断信息已复制')
     } catch (e) {
-      toast('复制失败，请查看控制台')
+      /* 落到下面的提示 */
     }
-    debugLog(text)
-    console.log('[bcc] 诊断信息\n' + text)
+    toast('字幕没有切换成功，请点菜单「复制诊断信息到剪贴板」')
   }
 
   // ---------------------------------------------------------------- 设置面板
 
   let panelHost = null
   let recording = false
-
-  function currentLangValue() {
-    const value = getLangPref()
-    if (!value) {
-      return { select: 'auto', custom: '' }
-    }
-    if (['zh-CN', 'en-US', 'ja'].includes(value)) {
-      return { select: value, custom: '' }
-    }
-    return { select: 'custom', custom: value }
-  }
 
   function openSettings() {
     if (panelHost) {
@@ -972,9 +707,19 @@
     recording = false
   }
 
+  function currentLangValue() {
+    const value = getLangPref()
+    if (!value) {
+      return { select: 'auto', custom: '' }
+    }
+    if (['zh-CN', 'en-US', 'ja'].includes(value)) {
+      return { select: value, custom: '' }
+    }
+    return { select: 'custom', custom: value }
+  }
+
   function buildPanelHtml() {
     const lang = currentLangValue()
-    const style = getStyle()
     return `
 <style>
   :host { all: initial; }
@@ -984,20 +729,14 @@
     font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
   }
   .panel {
-    width: 460px; max-width: calc(100vw - 48px); max-height: 88vh; overflow-y: auto;
-    box-sizing: border-box;
+    width: 420px; max-width: calc(100vw - 48px);
     background: #181a1d; color: #e8e6e3;
     border: 1px solid #2a2d31; border-radius: 12px;
-    padding: 20px 22px 0; box-shadow: 0 12px 48px rgba(0,0,0,.55);
+    padding: 20px 22px 18px; box-shadow: 0 12px 48px rgba(0,0,0,.55);
   }
-  .panel::-webkit-scrollbar { width: 8px; }
-  .panel::-webkit-scrollbar-thumb { background: #34383d; border-radius: 4px; }
-  .panel::-webkit-scrollbar-track { background: transparent; }
   .title { font-size: 16px; font-weight: 600; margin-bottom: 4px; }
-  .sub { font-size: 12px; color: #9a958d; margin-bottom: 14px; }
-  .group { font-size: 12px; font-weight: 600; color: #e08a5f; letter-spacing: .04em;
-    margin: 18px 0 10px; padding-bottom: 6px; border-bottom: 1px solid #26292d; }
-  .row { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+  .sub { font-size: 12px; color: #9a958d; margin-bottom: 16px; }
+  .row { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
   .label { width: 96px; flex: none; font-size: 13px; color: #c9c4bc; }
   .grow { flex: 1; display: flex; gap: 8px; align-items: center; min-width: 0; }
   input[type="text"], select {
@@ -1015,49 +754,11 @@
   button:hover { border-color: #4a4f55; }
   button.primary { background: #e08a5f; border-color: #e08a5f; color: #16181a; font-weight: 600; }
   button.primary:hover { background: #e89a72; }
-  .footer { position: sticky; bottom: 0; z-index: 4;
-    display: flex; justify-content: space-between; gap: 10px;
-    margin: 20px -22px 0; padding: 14px 22px 16px;
-    border-top: 1px solid #26292d; background: #181a1d; }
-  .footer-right { display: flex; gap: 10px; }
-  .hint { font-size: 12px; color: #9a958d; margin: -6px 0 10px 108px; }
+  .footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+  .hint { font-size: 12px; color: #9a958d; margin: -6px 0 12px 108px; }
   .check { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #c9c4bc; }
   .check input { accent-color: #e08a5f; }
   .hidden { display: none; }
-
-  input[type="range"] {
-    -webkit-appearance: none; appearance: none; flex: 1; height: 4px;
-    background: #2a2d31; border-radius: 2px; outline: none; min-width: 0;
-  }
-  input[type="range"]::-webkit-slider-thumb {
-    -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%;
-    background: #e08a5f; cursor: pointer; border: none;
-  }
-  .val { width: 52px; flex: none; text-align: right; font-size: 12px;
-    color: #e08a5f; font-variant-numeric: tabular-nums; }
-  input[type="color"] {
-    width: 40px; height: 30px; padding: 2px; border: 1px solid #2a2d31;
-    border-radius: 6px; background: #0e0f11; cursor: pointer; flex: none;
-  }
-  .swatches { display: flex; gap: 6px; }
-  .swatch { width: 22px; height: 22px; padding: 0; border-radius: 4px;
-    border: 1px solid #3a3f45; cursor: pointer; }
-  .swatch:hover { border-color: #e08a5f; }
-
-  .preview {
-    position: relative; height: 132px; border-radius: 8px; overflow: hidden;
-    background: linear-gradient(135deg, #1b1e22 0%, #0d0f11 60%, #17191c 100%);
-    border: 1px solid #2a2d31;
-  }
-  .preview::after {
-    content: "预览"; position: absolute; left: 8px; top: 6px;
-    font-size: 11px; color: #5c6167; letter-spacing: .08em;
-  }
-  .preview-sub {
-    position: absolute; bottom: 9%; left: 50%; transform: translateX(-50%);
-    max-width: 86%; box-sizing: border-box; white-space: pre-wrap;
-    word-break: break-word; text-align: center;
-  }
 </style>
 <div class="mask">
   <div class="panel">
@@ -1108,12 +809,23 @@
       <div class="label">操作提示</div>
       <div class="grow">
         <select class="tip-mode">
-          <option value="auto" ${getTipMode() === 'auto' ? 'selected' : ''}>不在屏幕上提示</option>
-          <option value="self" ${getTipMode() === 'self' ? 'selected' : ''}>左下角显示提示</option>
+          <option value="auto" ${getTipMode() === 'auto' ? 'selected' : ''}>跟随 B 站（默认）</option>
+          <option value="self" ${getTipMode() === 'self' ? 'selected' : ''}>总是显示左下角提示</option>
           <option value="none" ${getTipMode() === 'none' ? 'selected' : ''}>不显示</option>
         </select>
       </div>
     </div>
+
+    <div class="row">
+      <div class="label">自动关闭</div>
+      <div class="grow">
+        <label class="check">
+          <input type="checkbox" class="auto-off" ${isAutoOff() ? 'checked' : ''}>
+          进入视频时自动关闭字幕
+        </label>
+      </div>
+    </div>
+    <div class="hint">B 站会恢复上次的字幕状态，勾选后每次进视频都从「关闭」开始</div>
 
     <div class="row">
       <div class="label">启用</div>
@@ -1125,119 +837,20 @@
       </div>
     </div>
 
-    <div class="group">字幕位置</div>
-
-    <div class="preview">
-      <div class="preview-sub" id="bcc-preview-sub">这是一行示例字幕 Sample subtitle</div>
-    </div>
-
-    <div class="row" style="margin-top:12px">
-      <div class="label">垂直位置</div>
-      <div class="grow">
-        <input type="range" class="pos-y" min="2" max="45" step="1" value="${style.posY}">
-        <div class="val pos-y-val">${style.posY}%</div>
-      </div>
-    </div>
-    <div class="hint">数值越大越靠上；B 站原生字幕约在 9%</div>
-
-    <div class="row">
-      <div class="label">水平对齐</div>
-      <div class="grow">
-        <select class="align">
-          <option value="center" ${style.align === 'center' ? 'selected' : ''}>居中</option>
-          <option value="left" ${style.align === 'left' ? 'selected' : ''}>靠左</option>
-          <option value="right" ${style.align === 'right' ? 'selected' : ''}>靠右</option>
-        </select>
-      </div>
-    </div>
-
-    <div class="group">字幕样式</div>
-
-    <div class="row">
-      <div class="label">字号</div>
-      <div class="grow">
-        <input type="range" class="font-scale" min="50" max="250" step="5" value="${Math.round(
-          style.fontScale * 100,
-        )}">
-        <div class="val font-scale-val">${Math.round(style.fontScale * 100)}%</div>
-      </div>
-    </div>
-
-    <div class="row">
-      <div class="label">字体</div>
-      <div class="grow">
-        <select class="font-family">
-          <option value="system" ${style.fontFamily === 'system' ? 'selected' : ''}>系统黑体（默认）</option>
-          <option value="round" ${style.fontFamily === 'round' ? 'selected' : ''}>思源黑体</option>
-          <option value="serif" ${style.fontFamily === 'serif' ? 'selected' : ''}>宋体</option>
-        </select>
-      </div>
-    </div>
-
-    <div class="row">
-      <div class="label">文字颜色</div>
-      <div class="grow">
-        <input type="color" class="color" value="${style.color}">
-        <div class="swatches">
-          <button class="swatch" data-color="#ffffff" style="background:#ffffff" title="白"></button>
-          <button class="swatch" data-color="#ffe66d" style="background:#ffe66d" title="黄"></button>
-          <button class="swatch" data-color="#8fd3ff" style="background:#8fd3ff" title="浅蓝"></button>
-          <button class="swatch" data-color="#9ef0a8" style="background:#9ef0a8" title="浅绿"></button>
-          <button class="swatch" data-color="#ffb3c1" style="background:#ffb3c1" title="粉"></button>
-        </div>
-      </div>
-    </div>
-
-    <div class="row">
-      <div class="label">描边</div>
-      <div class="grow">
-        <select class="stroke">
-          <option value="none" ${style.stroke === 'none' ? 'selected' : ''}>无</option>
-          <option value="thin" ${style.stroke === 'thin' ? 'selected' : ''}>细</option>
-          <option value="medium" ${style.stroke === 'medium' ? 'selected' : ''}>中（默认）</option>
-          <option value="thick" ${style.stroke === 'thick' ? 'selected' : ''}>粗</option>
-        </select>
-      </div>
-    </div>
-
-    <div class="row">
-      <div class="label">背景框</div>
-      <div class="grow">
-        <input type="range" class="bg-opacity" min="0" max="100" step="5" value="${style.bgOpacity}">
-        <div class="val bg-opacity-val">${style.bgOpacity}%</div>
-      </div>
-    </div>
-    <div class="hint">0% 为纯文字，调高后出现黑色底框</div>
-
-    <div class="row">
-      <div class="label">行高</div>
-      <div class="grow">
-        <input type="range" class="line-height" min="105" max="200" step="5" value="${Math.round(
-          style.lineHeight * 100,
-        )}">
-        <div class="val line-height-val">${style.lineHeight.toFixed(2)}</div>
-      </div>
-    </div>
-
-    <div class="row">
-      <div class="label">加粗</div>
-      <div class="grow">
-        <label class="check">
-          <input type="checkbox" class="bold" ${style.bold ? 'checked' : ''}>
-          文字加粗
-        </label>
-      </div>
-    </div>
-
     <div class="footer">
-      <button class="btn-reset">恢复默认</button>
-      <div class="footer-right">
-        <button class="btn-cancel">取消</button>
-        <button class="primary btn-save">保存</button>
-      </div>
+      <button class="btn-cancel">取消</button>
+      <button class="primary btn-save">保存</button>
     </div>
   </div>
 </div>`
+  }
+
+  function escapeHtml(text) {
+    return String(text == null ? '' : text)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
   }
 
   function bindPanel(shadow, host) {
@@ -1248,112 +861,10 @@
     const langCustom = shadow.querySelector('.lang-custom')
     const humanFirst = shadow.querySelector('.human-first')
     const tipMode = shadow.querySelector('.tip-mode')
+    const autoOff = shadow.querySelector('.auto-off')
     const enabled = shadow.querySelector('.enabled')
 
-    const posY = shadow.querySelector('.pos-y')
-    const posYVal = shadow.querySelector('.pos-y-val')
-    const alignSelect = shadow.querySelector('.align')
-    const fontScale = shadow.querySelector('.font-scale')
-    const fontScaleVal = shadow.querySelector('.font-scale-val')
-    const fontFamily = shadow.querySelector('.font-family')
-    const colorInput = shadow.querySelector('.color')
-    const strokeSelect = shadow.querySelector('.stroke')
-    const bgOpacity = shadow.querySelector('.bg-opacity')
-    const bgOpacityVal = shadow.querySelector('.bg-opacity-val')
-    const lineHeight = shadow.querySelector('.line-height')
-    const lineHeightVal = shadow.querySelector('.line-height-val')
-    const boldInput = shadow.querySelector('.bold')
-    const previewSub = shadow.querySelector('#bcc-preview-sub')
-
     let recordedKey = getHotkeyValue()
-
-    /** 读取面板当前的样式值 (未保存) */
-    const readStyleFromPanel = () => ({
-      posY: Number(posY.value),
-      align: alignSelect.value,
-      fontScale: Number(fontScale.value) / 100,
-      fontFamily: fontFamily.value,
-      bold: boldInput.checked,
-      color: colorInput.value,
-      stroke: strokeSelect.value,
-      bgOpacity: Number(bgOpacity.value),
-      lineHeight: Number(lineHeight.value) / 100,
-    })
-
-    /** 预览区按面板当前值实时渲染 */
-    const syncPreview = () => {
-      const style = readStyleFromPanel()
-      posYVal.textContent = `${style.posY}%`
-      fontScaleVal.textContent = `${Math.round(style.fontScale * 100)}%`
-      bgOpacityVal.textContent = `${style.bgOpacity}%`
-      lineHeightVal.textContent = style.lineHeight.toFixed(2)
-
-      if (!previewSub) {
-        return
-      }
-      previewSub.style.bottom = `${style.posY}%`
-      if (style.align === 'center') {
-        previewSub.style.left = '50%'
-        previewSub.style.right = 'auto'
-        previewSub.style.transform = 'translateX(-50%)'
-        previewSub.style.textAlign = 'center'
-      } else if (style.align === 'left') {
-        previewSub.style.left = '6%'
-        previewSub.style.right = 'auto'
-        previewSub.style.transform = 'none'
-        previewSub.style.textAlign = 'left'
-      } else {
-        previewSub.style.left = 'auto'
-        previewSub.style.right = '6%'
-        previewSub.style.transform = 'none'
-        previewSub.style.textAlign = 'right'
-      }
-      previewSub.style.fontSize = `${Math.round(15 * style.fontScale)}px`
-      previewSub.style.fontFamily = FONT_STACK[style.fontFamily]
-      previewSub.style.fontWeight = style.bold ? '700' : '400'
-      previewSub.style.color = style.color
-      previewSub.style.lineHeight = String(style.lineHeight)
-      previewSub.style.textShadow = STROKE_SHADOW[style.stroke]
-      if (style.bgOpacity > 0) {
-        previewSub.style.background = `rgba(0,0,0,${(style.bgOpacity / 100).toFixed(2)})`
-        previewSub.style.padding = '0.12em 0.45em'
-        previewSub.style.borderRadius = '0.18em'
-      } else {
-        previewSub.style.background = 'none'
-        previewSub.style.padding = '0'
-        previewSub.style.borderRadius = '0'
-      }
-    }
-
-    ;[posY, fontScale, bgOpacity, lineHeight].forEach(el => {
-      el.addEventListener('input', syncPreview)
-    })
-    ;[alignSelect, fontFamily, strokeSelect, colorInput, boldInput].forEach(el => {
-      el.addEventListener('input', syncPreview)
-      el.addEventListener('change', syncPreview)
-    })
-
-    shadow.querySelectorAll('.swatch').forEach(btn => {
-      btn.addEventListener('click', () => {
-        colorInput.value = btn.dataset.color || '#ffffff'
-        syncPreview()
-      })
-    })
-
-    shadow.querySelector('.btn-reset').addEventListener('click', () => {
-      posY.value = DEFAULT_STYLE.posY
-      alignSelect.value = DEFAULT_STYLE.align
-      fontScale.value = Math.round(DEFAULT_STYLE.fontScale * 100)
-      fontFamily.value = DEFAULT_STYLE.fontFamily
-      boldInput.checked = DEFAULT_STYLE.bold
-      colorInput.value = DEFAULT_STYLE.color
-      strokeSelect.value = DEFAULT_STYLE.stroke
-      bgOpacity.value = DEFAULT_STYLE.bgOpacity
-      lineHeight.value = Math.round(DEFAULT_STYLE.lineHeight * 100)
-      syncPreview()
-    })
-
-    syncPreview()
 
     const stopRecording = () => {
       if (!recording) {
@@ -1379,7 +890,7 @@
       }
       const combo = normalizeCombo(e)
       if (!combo) {
-        keyInput.value = '请按下组合键（Esc 取消）'
+        keyInput.value = '请按下组合键（可带 Esc 取消）'
         return
       }
       recordedKey = combo
@@ -1397,7 +908,6 @@
       window.addEventListener('keydown', onRecord, true)
     })
 
-    langSelect.value = currentLangValue().select
     langSelect.addEventListener('change', () => {
       langCustomRow.classList.toggle('hidden', langSelect.value !== 'custom')
     })
@@ -1413,16 +923,15 @@
       store.set(STORE_HUMAN, humanFirst.checked ? '1' : '0')
       store.set(STORE_TIP, tipMode.value)
       store.set(STORE_ENABLED, enabled.checked ? '1' : '0')
-      saveStyle(readStyleFromPanel())
+      store.set(STORE_AUTO_OFF, autoOff.checked ? '1' : '0')
       closeSettings()
-      if (engine.layer && engine.active) {
-        applyLayerStyle(engine.layer)
-      }
       toast('设置已保存')
-      subtitleCache.clear()
+      // 勾了自动关闭就立刻把这个视频的字幕也关掉, 不用等下次进页面
+      startAutoOff('设置已保存')
     })
 
-    // 只监听遮罩本身: Shadow DOM 会把内部事件 target 重定向为 host
+    // 只监听遮罩本身。不能再监听 host:
+    // Shadow DOM 会把内部事件的 target 重定向为 host, 导致面板内任何点击都被判定为「点空白处」
     const maskElement = shadow.querySelector('.mask')
     maskElement.addEventListener('click', e => {
       const origin = typeof e.composedPath === 'function' ? e.composedPath()[0] : e.target
@@ -1463,7 +972,10 @@
     if (isEditable(first)) {
       return
     }
-    if (!combo || comboKey(combo) !== comboKey(getHotkeyValue())) {
+    if (!combo) {
+      return
+    }
+    if (comboKey(combo) !== comboKey(getHotkeyValue())) {
       return
     }
     e.preventDefault()
@@ -1476,49 +988,83 @@
 
   window.addEventListener('keydown', onKeyDown, true)
 
+  // 用户自己点字幕按钮 / 语言项也算主动操作, 自动关闭不再插手
+  document.addEventListener(
+    'click',
+    e => {
+      if (!e.isTrusted) {
+        return
+      }
+      const target = e.target
+      if (
+        target instanceof Element &&
+        target.closest('.bpx-player-ctrl-subtitle, .bpx-player-ctrl-subtitle-box')
+      ) {
+        userToggledAt = Date.now()
+      }
+    },
+    true,
+  )
+
   // ---------------------------------------------------------------- 跟随页面
+
+  whenDomReady(() => {
+    startAutoOff('首次加载')
+  })
 
   let lastHref = location.href
 
-  function checkUrlChange() {
+  window.setInterval(() => {
     if (location.href !== lastHref) {
       lastHref = location.href
-      resetForNewVideo()
+      startAutoOff('切换视频')
     }
-  }
-
-  window.setInterval(checkUrlChange, 800)
-
-  window.addEventListener('resize', () => {
-    if (engine.layer && engine.active) {
-      applyLayerStyle(engine.layer)
-    }
-  })
-
-  document.addEventListener('fullscreenchange', () => {
-    window.setTimeout(() => {
-      if (engine.active) {
-        mountLayer()
-        applyLayerStyle(engine.layer)
-      }
-    }, 300)
-  })
+  }, 800)
 
   // ---------------------------------------------------------------- 菜单
 
   if (typeof GM_registerMenuCommand === 'function') {
     GM_registerMenuCommand('设置 CC 字幕快捷键', openSettings)
-    GM_registerMenuCommand('切换一次 CC 字幕', () => {
+    GM_registerMenuCommand('切换一次 CC 字幕（调试）', () => {
       toggleSubtitle()
     })
-    GM_registerMenuCommand('复制诊断信息到剪贴板', copyDiagnostics)
-    GM_registerMenuCommand('清空字幕缓存', () => {
-      subtitleCache.clear()
-      resetForNewVideo()
-      toast('字幕缓存已清空')
+    GM_registerMenuCommand('诊断：显示按键信息（开/关）', () => {
+      debugMode = !debugMode
+      toast(`按键诊断已${debugMode ? '开启' : '关闭'}`)
+      if (debugMode) {
+        debugLog('诊断已开启，在视频页按一次快捷键查看按键信息')
+      } else {
+        const el = document.getElementById('bcc-debug')
+        if (el) {
+          el.remove()
+        }
+      }
+    })
+    GM_registerMenuCommand('复制诊断信息到剪贴板', async () => {
+      await ensurePanelUsable()
+      const text = buildDiagnostics()
+      try {
+        if (typeof GM_setClipboard === 'function') {
+          GM_setClipboard(text, 'text')
+        } else {
+          const area = document.createElement('textarea')
+          area.value = text
+          area.style.cssText = 'position:fixed;left:-9999px;top:0;'
+          document.body.appendChild(area)
+          area.select()
+          document.execCommand('copy')
+          area.remove()
+        }
+        toast('诊断信息已复制，直接粘贴发给开发者')
+      } catch (e) {
+        toast('复制失败，请查看控制台')
+      }
+      debugLog(text)
+      console.log('[bcc] 诊断信息\n' + text)
     })
   }
 
+  // 首次使用写入默认值, 便于在设置面板里看到当前按键
   if (store.get(STORE_KEY, '') === '') {
     store.set(STORE_KEY, DEFAULT_HOTKEY)
   }
