@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         9527哔哩哔哩CC字幕快捷键
 // @namespace    https://github.com/Godwin9527
-// @version      2.2.0
+// @version      2.2.1
 // @description  独立于 Bilibili Evolved 的 CC 字幕开关键盘快捷键，直接操作 B 站原生字幕，支持自定义按键、语言偏好、人工字幕优先、进入视频自动关闭字幕
 // @author       Godwin9527
 // @run-at       document-start
@@ -29,9 +29,12 @@
  * 点击后回读 close-switch 的状态确认真的生效, 没有就换点击方式重试。
  *
  * 关于「默认关闭」: B 站会恢复上次的字幕状态, 常见表现是新进视频 AI 字幕自己就开了。
- * 勾选「进入视频时自动关闭字幕」后, 每次进页面 / 切视频都会在 20 秒窗口内盯着,
- * 一旦发现字幕被打开就立刻关掉; 用户在这期间按过快捷键, 本轮观察直接让位,
- * 不会出现「手动刚打开又被脚本关掉」。
+ * 勾选「进入视频时自动关闭字幕」后, 脚本会为当前视频记住一个意图 (expectOff):
+ * 默认是「希望字幕关着」, 只要意图是关, 就常驻看守, 任何时候发现字幕被打开都立刻关掉,
+ * 不再受「进入视频后 N 秒」这类时间窗口限制。
+ *
+ * 用户自己开字幕 (按快捷键, 或真实点击播放器内的字幕开关) 会把意图改成「开」,
+ * 本视频内脚本就不再插手; 再按一次快捷键关掉, 意图回到「关」, 看守重新上线。
  */
 (function () {
   'use strict'
@@ -449,14 +452,11 @@
   }
 
   let busy = false
-  /** 用户最后一次手动切换字幕的时间, 自动关闭据此让位 */
-  let userToggledAt = 0
 
   async function toggleSubtitle() {
     if (busy) {
       return
     }
-    userToggledAt = Date.now()
     busy = true
     const trace = []
     try {
@@ -490,6 +490,8 @@
           if (getState().off === true) {
             trace.push(`③ 已关闭字幕 (第 ${i + 1} 次点击生效)`)
             debugLog(trace.join('\n'))
+            expectOff = true
+            startWatch('快捷键关闭字幕')
             successTip('字幕已关闭')
             return
           }
@@ -535,6 +537,8 @@
         if (isSubtitleOn()) {
           trace.push(`  第${round + 1}轮: 点 ${lan} 生效`)
           debugLog(trace.join('\n'))
+          // 用户主动开字幕, 本视频交给用户, 自动关闭不再插手
+          expectOff = false
           const label = (target.textContent || '').trim()
           successTip(label ? `字幕已开启（${label}）` : '字幕已开启')
           return
@@ -559,61 +563,97 @@
 
   // ---------------------------------------------------------------- 自动关闭
 
-  /** 观察窗口: B 站会在视频加载后把上次的字幕状态恢复成「开」, 需要持续盯着 */
-  const AUTO_OFF_DURATION = 20000
-  const AUTO_OFF_INTERVAL = 600
-
-  let autoOffToken = 0
+  const WATCH_ACTIVE = 800
+  const WATCH_HIDDEN = 5000
+  const WATCH_NO_PANEL = 2000
 
   /**
-   * 进入视频后把字幕关掉。
-   * 只在真正检测到「字幕已开」时动作一次, 成功后立刻结束本轮;
-   * 用户在观察窗口内按过快捷键, 就整轮让位, 不再插手。
+   * 本视频的字幕意图: true = 希望字幕是关的。
+   * 进页面 / 切视频时重置为 true; 用户自己开字幕则置 false, 本视频不再插手。
    */
-  async function autoOffWatch(reason) {
-    const token = ++autoOffToken
-    if (!isAutoOff() || !isEnabled()) {
-      return
+  let expectOff = true
+
+  let watchToken = 0
+  let watchTimer = 0
+  let failCount = 0
+
+  function watchDelay() {
+    if (failCount > 0) {
+      return Math.min(4000, WATCH_ACTIVE * (1 + failCount))
     }
-    const startedAt = Date.now()
-    let attempts = 0
-    while (Date.now() - startedAt < AUTO_OFF_DURATION) {
-      if (token !== autoOffToken || !isAutoOff()) {
-        return
-      }
-      if (userToggledAt > startedAt) {
-        return
-      }
-      const state = getState()
-      if (state.closeSwitch && state.off === false) {
-        attempts++
-        state.closeSwitch.click()
-        await sleep(260)
-        if (token !== autoOffToken) {
-          return
-        }
-        if (getState().off === true) {
-          console.log('[bcc] 已自动关闭字幕', reason)
-          return
-        }
-        // 连点几次都没反应就收手, 避免在面板异常时反复点击
-        if (attempts >= 3) {
-          console.log('[bcc] 自动关闭失败, 已停止重试')
-          return
-        }
-      }
-      await sleep(AUTO_OFF_INTERVAL)
-    }
+    return document.hidden ? WATCH_HIDDEN : WATCH_ACTIVE
   }
 
-  /** 等播放器渲染出来再开始观察, 避免在 DOM 还没就绪时白白耗掉窗口 */
-  function startAutoOff(reason) {
-    if (!isAutoOff() || !isEnabled()) {
+  function scheduleWatch(delay) {
+    if (watchTimer) {
+      clearTimeout(watchTimer)
+    }
+    const token = watchToken
+    watchTimer = window.setTimeout(() => {
+      watchTimer = 0
+      watchTick(token)
+    }, delay)
+  }
+
+  /**
+   * 常驻看守: 意图为「关」时, 任何时刻发现字幕被打开就关掉。
+   * 面板还没渲染时降频等待, 点击失败时退避重试, 不设总时长上限。
+   */
+  async function watchTick(token) {
+    if (token !== watchToken) {
       return
     }
-    window.setTimeout(() => {
-      autoOffWatch(reason)
-    }, 800)
+    if (!isAutoOff() || !isEnabled() || !expectOff) {
+      return
+    }
+    // 快捷键正在切换中, 让位后再看
+    if (busy) {
+      scheduleWatch(400)
+      return
+    }
+    const state = getState()
+    if (!state.closeSwitch) {
+      scheduleWatch(document.hidden ? WATCH_HIDDEN * 2 : WATCH_NO_PANEL)
+      return
+    }
+    if (state.off === false) {
+      state.closeSwitch.click()
+      await sleep(260)
+      if (token !== watchToken) {
+        return
+      }
+      if (getState().off === true) {
+        if (failCount > 0) {
+          console.log('[bcc] 已自动关闭字幕（重试成功）')
+        }
+        failCount = 0
+      } else {
+        failCount++
+        console.log(`[bcc] 自动关闭未生效，第 ${failCount} 次`)
+      }
+    } else {
+      failCount = 0
+    }
+    scheduleWatch(watchDelay())
+  }
+
+  /**
+   * 启动 / 重生看守链。
+   * 前一次定时器会被清掉, 由新 token 接管, 避免多条链叠加。
+   */
+  function startWatch(reason) {
+    if (!isAutoOff() || !isEnabled() || !expectOff) {
+      return
+    }
+    failCount = 0
+    watchToken++
+    console.log('[bcc] 开始看守字幕状态' + (reason ? `（${reason}）` : ''))
+    scheduleWatch(600)
+  }
+
+  function resetForVideo(reason) {
+    expectOff = true
+    startWatch(reason)
   }
 
   function whenDomReady(fn) {
@@ -927,7 +967,7 @@
       closeSettings()
       toast('设置已保存')
       // 勾了自动关闭就立刻把这个视频的字幕也关掉, 不用等下次进页面
-      startAutoOff('设置已保存')
+      resetForVideo('设置已保存')
     })
 
     // 只监听遮罩本身。不能再监听 host:
@@ -988,20 +1028,40 @@
 
   window.addEventListener('keydown', onKeyDown, true)
 
-  // 用户自己点字幕按钮 / 语言项也算主动操作, 自动关闭不再插手
+  /**
+   * 真实点击播放器内任意位置后, 对比点击前后的字幕状态。
+   * 只有状态真的被翻转了才认作用户意图 —— 否则点暂停 / 音量也会把意图误改成「开」。
+   * 这样字幕按钮、语言项、播放器设置里的字幕开关都能同步意图。
+   */
+  const PLAYER_SCOPE = '.bpx-player-container, .bpx-player, #bilibili-player'
+
   document.addEventListener(
     'click',
     e => {
       if (!e.isTrusted) {
         return
       }
-      const target = e.target
-      if (
-        target instanceof Element &&
-        target.closest('.bpx-player-ctrl-subtitle, .bpx-player-ctrl-subtitle-box')
-      ) {
-        userToggledAt = Date.now()
+      const origin = typeof e.composedPath === 'function' ? e.composedPath()[0] : e.target
+      const originEl = origin instanceof Element ? origin : origin && origin.parentElement
+      if (!originEl || !originEl.closest(PLAYER_SCOPE)) {
+        return
       }
+      const before = getState().off
+      if (before === null) {
+        return
+      }
+      window.setTimeout(() => {
+        const after = getState().off
+        if (after === null || after === before) {
+          return
+        }
+        expectOff = after === true
+        if (expectOff) {
+          startWatch('用户手动关闭字幕')
+        } else {
+          console.log('[bcc] 用户手动开启字幕，本视频不再自动关闭')
+        }
+      }, 300)
     },
     true,
   )
@@ -1009,7 +1069,15 @@
   // ---------------------------------------------------------------- 跟随页面
 
   whenDomReady(() => {
-    startAutoOff('首次加载')
+    resetForVideo('首次加载')
+  })
+
+  // 切回前台立刻校准一次, 抵消后台标签页的计时器节流
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden || !expectOff) {
+      return
+    }
+    startWatch('回到前台')
   })
 
   let lastHref = location.href
@@ -1017,7 +1085,7 @@
   window.setInterval(() => {
     if (location.href !== lastHref) {
       lastHref = location.href
-      startAutoOff('切换视频')
+      resetForVideo('切换视频')
     }
   }, 800)
 
