@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         9527哔哩哔哩CC字幕快捷键
 // @namespace    https://github.com/Godwin9527
-// @version      2.2.1
+// @version      2.2.2
 // @description  独立于 Bilibili Evolved 的 CC 字幕开关键盘快捷键，直接操作 B 站原生字幕，支持自定义按键、语言偏好、人工字幕优先、进入视频自动关闭字幕
 // @author       Godwin9527
 // @run-at       document-start
@@ -28,6 +28,12 @@
  * 面板未渲染时先 hover / 点一次字幕按钮把它唤出来, 再按语言偏好选一项点下去,
  * 点击后回读 close-switch 的状态确认真的生效, 没有就换点击方式重试。
  *
+ * 状态判定不能只看第一个 close-switch: B 站的主字幕 / 副字幕 / AI 翻译各有一套「关闭」项,
+ * 而且开关标成「关闭」时字幕层也可能没清干净。所以:
+ * - 所有 close-switch 都处于选中态才算开关层面已关
+ * - 再叠加字幕渲染层 (.bpx-player-subtitle-wrap) 是否有可见文字
+ * - 两者都成立才算真的关; 只有开关成立时执行「开 → 关」强制重建一次
+ *
  * 关于「默认关闭」: B 站会恢复上次的字幕状态, 常见表现是新进视频 AI 字幕自己就开了。
  * 勾选「进入视频时自动关闭字幕」后, 脚本会为当前视频记住一个意图 (expectOff):
  * 默认是「希望字幕关着」, 只要意图是关, 就常驻看守, 任何时候发现字幕被打开都立刻关掉,
@@ -53,6 +59,7 @@
 
   const SEL_CLOSE = '.bpx-player-ctrl-subtitle-close-switch'
   const SEL_BTN = '.bpx-player-ctrl-subtitle'
+  const SEL_WRAP = '.bpx-player-subtitle-wrap'
   const SEL_MAJOR_ITEM = '.bpx-player-ctrl-subtitle-major .bpx-player-ctrl-subtitle-language-item'
   const SEL_ANY_ITEM = '.bpx-player-ctrl-subtitle-language-item'
   const SEL_MINOR = '.bpx-player-ctrl-subtitle-minor'
@@ -390,32 +397,137 @@
   }
 
   /**
+   * 元素及其祖先是否真的在渲染 (没被 display/visibility/opacity 藏起来)
+   * 停止条件到 stopAt, 避免被播放器外层的样式干扰。
+   */
+  function isRendered(el, stopAt) {
+    let node = el
+    while (node && node !== stopAt && node.nodeType === 1) {
+      const cs = window.getComputedStyle(node)
+      if (cs.display === 'none' || cs.visibility === 'hidden' || Number(cs.opacity) < 0.05) {
+        return false
+      }
+      node = node.parentElement
+    }
+    return true
+  }
+
+  /**
+   * 字幕渲染层里是不是真的有可见文字。
+   * B 站可能把开关标成「关闭」但字幕层没清掉, 只信开关会误判。
+   */
+  function layerShown() {
+    for (const wrap of Array.from(document.querySelectorAll(SEL_WRAP))) {
+      for (const el of Array.from(wrap.querySelectorAll('div, span'))) {
+        const text = (el.textContent || '').trim()
+        if (!text || el.querySelector('div, span')) {
+          continue
+        }
+        const rect = el.getBoundingClientRect()
+        if (rect.width < 2 || rect.height < 2) {
+          continue
+        }
+        if (isRendered(el, wrap.parentElement)) {
+          return true
+        }
+      }
+    }
+    return false
+  }
+
+  /**
    * 读取当前字幕状态。
-   * off === true  关闭字幕这一项处于选中态, 也就是字幕当前是关的
-   * off === null  面板还没渲染
+   * B 站的主字幕 / 副字幕 / AI 翻译各有一套「关闭」开关, 只取第一个会误判,
+   * 所以全部收集, 全部处于选中态才算开关层面已关。
+   *
+   * off === true   所有关闭开关都选中
+   * off === false  至少一个开关没选中, 字幕处于开的状态
+   * off === null   面板还没渲染
    */
   function getState() {
-    const closeSwitch = document.querySelector(SEL_CLOSE)
-    if (!closeSwitch) {
-      return { closeSwitch: null, off: null, items: [] }
+    const switches = Array.from(document.querySelectorAll(SEL_CLOSE))
+    if (!switches.length) {
+      return { switches: [], closeSwitch: null, off: null, items: [] }
     }
     return {
-      closeSwitch,
-      off: closeSwitch.classList.contains('bpx-state-active'),
+      switches,
+      closeSwitch: switches[0],
+      off: switches.every(el => el.classList.contains('bpx-state-active')),
       items: queryItems(),
     }
   }
 
-  /** 字幕是否已开启: 关闭开关不亮, 或任一语言项处于选中态 */
+  /**
+   * 真正处于关闭状态: 开关全部选中, 且字幕层没有可见文字。
+   * 返回 null 表示面板还没渲染, 无法判断。
+   */
+  function reallyOff() {
+    const state = getState()
+    if (!state.switches.length) {
+      return null
+    }
+    return state.off === true && !layerShown()
+  }
+
+  /** 字幕是否已开启: 开关没全选中, 或任一语言项处于选中态, 或字幕层有文字 */
   function isSubtitleOn() {
     const state = getState()
-    if (!state.closeSwitch) {
-      return false
+    if (!state.switches.length) {
+      return layerShown()
     }
     if (state.off === false) {
       return true
     }
-    return !!document.querySelector(`${SEL_ANY_ITEM}.bpx-state-active`)
+    if (document.querySelector(`${SEL_ANY_ITEM}.bpx-state-active`)) {
+      return true
+    }
+    return layerShown()
+  }
+
+  /**
+   * 把字幕关到底。
+   * 1. 点掉所有没选中的关闭开关
+   * 2. 开关全都声称「已关」但字幕层还在渲染时, 说明状态脏了:
+   *    点一次变「开」再点一次变「关」, 强制重建渲染
+   */
+  async function forceClose(trace, rounds) {
+    const limit = rounds || 3
+    for (let round = 0; round < limit; round++) {
+      const pending = Array.from(document.querySelectorAll(SEL_CLOSE)).filter(
+        el => !el.classList.contains('bpx-state-active'),
+      )
+      for (const el of pending) {
+        el.click()
+        await sleep(160)
+      }
+      if (pending.length) {
+        await sleep(240)
+      }
+      if (reallyOff() === true) {
+        trace.push(`③ 已关闭字幕 (第 ${round + 1} 轮)`)
+        return true
+      }
+      if (!pending.length && layerShown()) {
+        trace.push(`③ 开关显示已关但字幕还在显示, 强制重建 (第 ${round + 1} 轮)`)
+        const sw = document.querySelector(SEL_CLOSE)
+        if (sw) {
+          sw.click()
+          await sleep(300)
+          const again = document.querySelector(SEL_CLOSE)
+          if (again) {
+            again.click()
+            await sleep(320)
+          }
+        }
+      } else {
+        await sleep(200)
+      }
+    }
+    if (reallyOff() === true) {
+      return true
+    }
+    trace.push('③ 关闭失败: 多次尝试后字幕仍在显示')
+    return false
   }
 
   /**
@@ -462,12 +574,13 @@
     try {
       trace.push('① 展开面板…')
       const panelReady = await ensurePanelUsable()
-      let state = getState()
+      const state = getState()
+      const shown = layerShown()
       trace.push(
-        `② 面板=${panelReady ? '已就绪' : '未就绪'} 关闭态=${state.off} 语言项=${state.items.length}`,
+        `② 面板=${panelReady ? '已就绪' : '未就绪'} 关闭开关=${state.switches.length} 全选中=${state.off} 字幕层显示=${shown} 语言项=${state.items.length}`,
       )
 
-      if (!state.closeSwitch) {
+      if (!state.switches.length) {
         const btn = document.querySelector(SEL_BTN)
         trace.push(`② 面板没有渲染出来 (字幕按钮=${btn ? '存在' : '不存在'})`)
         if (!btn) {
@@ -479,24 +592,15 @@
       }
 
       // ---- 关闭分支
-      if (!state.off) {
-        for (let i = 0; i < 4; i++) {
-          const close = document.querySelector(SEL_CLOSE)
-          if (!close) {
-            break
-          }
-          close.click()
-          await sleep(280)
-          if (getState().off === true) {
-            trace.push(`③ 已关闭字幕 (第 ${i + 1} 次点击生效)`)
-            debugLog(trace.join('\n'))
-            expectOff = true
-            startWatch('快捷键关闭字幕')
-            successTip('字幕已关闭')
-            return
-          }
+      // 注意用 reallyOff: 开关可能都显示「关闭」但字幕层还在渲染
+      if (state.off !== true || shown) {
+        if (await forceClose(trace)) {
+          debugLog(trace.join('\n'))
+          expectOff = true
+          startWatch('快捷键关闭字幕')
+          successTip('字幕已关闭')
+          return
         }
-        trace.push('③ 关闭失败: 点击关闭开关后状态没有变化')
         reportFailure(trace)
         return
       }
@@ -612,17 +716,18 @@
       return
     }
     const state = getState()
-    if (!state.closeSwitch) {
+    if (!state.switches.length) {
       scheduleWatch(document.hidden ? WATCH_HIDDEN * 2 : WATCH_NO_PANEL)
       return
     }
-    if (state.off === false) {
-      state.closeSwitch.click()
-      await sleep(260)
+    // 任何一个关闭开关没选中, 或字幕层还在渲染, 都算没关干净
+    if (state.off !== true || layerShown()) {
+      // 只跑一轮, 避免长时间占住 busy 让快捷键按下去没反应; 下一轮定时器会继续
+      const ok = await forceClose([], 1)
       if (token !== watchToken) {
         return
       }
-      if (getState().off === true) {
+      if (ok) {
         if (failCount > 0) {
           console.log('[bcc] 已自动关闭字幕（重试成功）')
         }
@@ -686,13 +791,17 @@
       }`,
       `URL: ${location.href}`,
       `字幕按钮节点: ${allPanels} 个, rect=${rect(document.querySelector(SEL_BTN))}`,
-      `close-switch: ${state.closeSwitch ? '存在' : '不存在'} rect=${rect(state.closeSwitch)}`,
-      `close-switch class: ${state.closeSwitch ? String(state.closeSwitch.className) : '-'}`,
+      `关闭开关: ${state.switches.length} 个, 全部选中=${state.off}`,
+      ...state.switches.map(
+        (el, i) => `  [${i}] class=${String(el.className)} rect=${rect(el)}`,
+      ),
+      `字幕层显示: ${layerShown() ? '是' : '否'} (wrap ${document.querySelectorAll(SEL_WRAP).length} 个)`,
+      `判定: ${state.off === null ? '面板未渲染' : reallyOff() ? '已关闭' : '未关闭'}`,
       `语言项: 全部 ${allItems} / major ${majorItems} / 可见 ${visibleItems}`,
       `语言项 lan: ${queryItems().map(el => lanOf(el)).join(', ') || '(空)'}`,
-      `字幕文本层: ${document.querySelectorAll('.bpx-player-subtitle-wrap').length} 个`,
-      `当前判定: ${state.off === null ? '面板未渲染' : state.off ? '字幕已关' : '字幕已开'}`,
+      `字幕文本层: ${document.querySelectorAll(SEL_WRAP).length} 个`,
       `自动关闭: ${isAutoOff() ? '开启' : '关闭'}`,
+      `意图: ${expectOff ? '希望关闭' : '交给用户'}`,
     ]
     return lines.join('\n')
   }
