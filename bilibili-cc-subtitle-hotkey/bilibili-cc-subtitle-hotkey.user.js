@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         9527哔哩哔哩CC字幕快捷键
 // @namespace    https://github.com/Godwin9527
-// @version      2.2.2
+// @version      2.3.0
 // @description  独立于 Bilibili Evolved 的 CC 字幕开关键盘快捷键，直接操作 B 站原生字幕，支持自定义按键、语言偏好、人工字幕优先、进入视频自动关闭字幕
 // @author       Godwin9527
 // @run-at       document-start
@@ -41,6 +41,12 @@
  *
  * 用户自己开字幕 (按快捷键, 或真实点击播放器内的字幕开关) 会把意图改成「开」,
  * 本视频内脚本就不再插手; 再按一次快捷键关掉, 意图回到「关」, 看守重新上线。
+ *
+ * 诊断: 菜单「复制诊断信息到剪贴板」会输出
+ * - 基础环境 / 播放器容器 / 全部关闭开关 / 全部语言项 / 全部字幕渲染层
+ * - 脚本运行时状态 (意图、看护 token、fail、busy、配置)
+ * - 本次页面生命周期内的关键事件日志 (带相对时间戳)
+ * 目的是一次复制就能定位现场, 不需要再让用户手敲代码。
  */
 (function () {
   'use strict'
@@ -114,6 +120,78 @@
   // ---------------------------------------------------------------- 工具
 
   const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
+
+  /** 本次页面生命周期内的关键事件环形缓冲, 供诊断输出 */
+  const LOG_LIMIT = 200
+  const eventLog = []
+  const bootAt = Date.now()
+
+  function logEvent(tag, detail) {
+    const t = Date.now() - bootAt
+    const mm = String(Math.floor(t / 60000)).padStart(2, '0')
+    const ss = String(Math.floor((t % 60000) / 1000)).padStart(2, '0')
+    const ms = String(t % 1000).padStart(3, '0')
+    eventLog.push(`+${mm}:${ss}.${ms} [${tag}] ${detail}`)
+    if (eventLog.length > LOG_LIMIT) {
+      eventLog.shift()
+    }
+  }
+
+  function scriptVersion() {
+    try {
+      if (typeof GM_info !== 'undefined' && GM_info.script) {
+        return GM_info.script.version || 'unknown'
+      }
+    } catch (e) {
+      /* 忽略 */
+    }
+    return 'unknown'
+  }
+
+  function rectBrief(el) {
+    if (!el) {
+      return 'none'
+    }
+    const r = el.getBoundingClientRect()
+    return `${Math.round(r.width)}x${Math.round(r.height)}@${Math.round(r.left)},${Math.round(r.top)}`
+  }
+
+  function styleBrief(el) {
+    if (!el) {
+      return '-'
+    }
+    const cs = window.getComputedStyle(el)
+    return `display=${cs.display} vis=${cs.visibility} op=${cs.opacity} z=${cs.zIndex}`
+  }
+
+  function classOf(el) {
+    if (!el) {
+      return '-'
+    }
+    const value = el.className
+    return String(value && value.baseVal !== undefined ? value.baseVal : value || '')
+  }
+
+  function nodeBrief(el) {
+    if (!el) {
+      return '-'
+    }
+    const cls = classOf(el).trim().split(/\s+/).filter(Boolean)
+    return (el.id ? `#${el.id}` : '') + (cls.length ? '.' + cls.join('.') : '') || el.tagName
+  }
+
+  function chainBrief(el, depth) {
+    const limit = depth || 3
+    const out = []
+    let node = el
+    let i = 0
+    while (node && node.nodeType === 1 && i < limit) {
+      out.push(nodeBrief(node))
+      node = node.parentElement
+      i++
+    }
+    return out.join(' < ')
+  }
 
   function isEditable(el) {
     if (!el || el.nodeType !== 1) {
@@ -496,6 +574,10 @@
       const pending = Array.from(document.querySelectorAll(SEL_CLOSE)).filter(
         el => !el.classList.contains('bpx-state-active'),
       )
+      logEvent(
+        'forceClose',
+        `第${round + 1}轮 开关=${document.querySelectorAll(SEL_CLOSE).length} 未选中=${pending.length} 层显示=${layerShown()}`,
+      )
       for (const el of pending) {
         el.click()
         await sleep(160)
@@ -505,10 +587,12 @@
       }
       if (reallyOff() === true) {
         trace.push(`③ 已关闭字幕 (第 ${round + 1} 轮)`)
+        logEvent('forceClose', `第${round + 1}轮 已关闭`)
         return true
       }
       if (!pending.length && layerShown()) {
         trace.push(`③ 开关显示已关但字幕还在显示, 强制重建 (第 ${round + 1} 轮)`)
+        logEvent('forceClose', `第${round + 1}轮 开关全选中但字幕层仍渲染, 执行 开→关 重建`)
         const sw = document.querySelector(SEL_CLOSE)
         if (sw) {
           sw.click()
@@ -527,6 +611,7 @@
       return true
     }
     trace.push('③ 关闭失败: 多次尝试后字幕仍在显示')
+    logEvent('forceClose', `关闭失败 开关全选中=${getState().off} 层显示=${layerShown()}`)
     return false
   }
 
@@ -539,6 +624,7 @@
     if (document.querySelector(SEL_CLOSE)) {
       return true
     }
+    logEvent('panel', '面板未渲染, 开始唤醒')
     const candidates = []
     const push = el => {
       if (el && !candidates.includes(el)) {
@@ -553,13 +639,16 @@
     for (const el of candidates) {
       fireHover(el)
       if (await waitFor(SEL_CLOSE, 350)) {
+        logEvent('panel', `hover ${nodeBrief(el)} 成功`)
         return true
       }
       fireClickSequence(el)
       if (await waitFor(SEL_CLOSE, 900)) {
+        logEvent('panel', `点击 ${nodeBrief(el)} 后出现面板（会顺带切换字幕状态）`)
         return true
       }
     }
+    logEvent('panel', '唤醒失败')
     return false
   }
 
@@ -572,6 +661,7 @@
     busy = true
     const trace = []
     try {
+      logEvent('toggle', '快捷键触发')
       trace.push('① 展开面板…')
       const panelReady = await ensurePanelUsable()
       const state = getState()
@@ -579,10 +669,12 @@
       trace.push(
         `② 面板=${panelReady ? '已就绪' : '未就绪'} 关闭开关=${state.switches.length} 全选中=${state.off} 字幕层显示=${shown} 语言项=${state.items.length}`,
       )
+      logEvent('toggle', `现场 开关=${state.switches.length} 全选中=${state.off} 层=${shown} 语言项=${state.items.length}`)
 
       if (!state.switches.length) {
         const btn = document.querySelector(SEL_BTN)
         trace.push(`② 面板没有渲染出来 (字幕按钮=${btn ? '存在' : '不存在'})`)
+        logEvent('toggle', `面板未渲染 字幕按钮=${!!btn}`)
         if (!btn) {
           toast('当前视频没有字幕')
           return
@@ -594,13 +686,16 @@
       // ---- 关闭分支
       // 注意用 reallyOff: 开关可能都显示「关闭」但字幕层还在渲染
       if (state.off !== true || shown) {
+        logEvent('toggle', `进入关闭分支 开关全选中=${state.off} 层显示=${shown}`)
         if (await forceClose(trace)) {
           debugLog(trace.join('\n'))
           expectOff = true
           startWatch('快捷键关闭字幕')
+          logEvent('toggle', '结果=已关闭')
           successTip('字幕已关闭')
           return
         }
+        logEvent('toggle', '结果=关闭失败')
         reportFailure(trace)
         return
       }
@@ -643,22 +738,26 @@
           debugLog(trace.join('\n'))
           // 用户主动开字幕, 本视频交给用户, 自动关闭不再插手
           expectOff = false
+          logEvent('toggle', `结果=已开启 lan=${lan} 第${round + 1}轮`)
           const label = (target.textContent || '').trim()
           successTip(label ? `字幕已开启（${label}）` : '字幕已开启')
           return
         }
         trace.push(`  第${round + 1}轮: 点 ${lan} 无效, 重试`)
+        logEvent('toggle', `第${round + 1}轮 点 ${lan} 未生效`)
         await sleep(220)
       }
 
       if (!sawItems) {
         trace.push('③ 面板里始终没有语言项')
+        logEvent('toggle', '结果=面板无语言项')
         toast('当前视频没有可选字幕')
         debugLog(trace.join('\n'), true)
         return
       }
 
       trace.push('③ 开启失败: 6 轮点击都没有生效')
+      logEvent('toggle', '结果=开启失败')
       reportFailure(trace)
     } finally {
       busy = false
@@ -722,6 +821,7 @@
     }
     // 任何一个关闭开关没选中, 或字幕层还在渲染, 都算没关干净
     if (state.off !== true || layerShown()) {
+      logEvent('watch', `发现未关闭 开关全选中=${state.off} 层=${layerShown()} fail=${failCount}`)
       // 只跑一轮, 避免长时间占住 busy 让快捷键按下去没反应; 下一轮定时器会继续
       const ok = await forceClose([], 1)
       if (token !== watchToken) {
@@ -753,11 +853,13 @@
     failCount = 0
     watchToken++
     console.log('[bcc] 开始看守字幕状态' + (reason ? `（${reason}）` : ''))
+    logEvent('watch', `start token=${watchToken} ${reason || ''}`)
     scheduleWatch(600)
   }
 
   function resetForVideo(reason) {
     expectOff = true
+    logEvent('video', `重置意图=关 ${reason || ''} url=${location.href.slice(0, 120)}`)
     startWatch(reason)
   }
 
@@ -769,41 +871,207 @@
     }
   }
 
+  /**
+   * 记录字幕渲染层的「显隐翻转」时间点。
+   * 用于回答「字幕是什么时候冒出来的、当时脚本在做什么」。
+   * 回调做了节流, 只有状态真的翻转才落一条日志。
+   */
+  let subtitleObserver = null
+  let lastLayerShown = null
+  let lastLayerProbeAt = 0
+
+  function startSubtitleObserver() {
+    if (subtitleObserver || typeof MutationObserver !== 'function' || !document.body) {
+      return
+    }
+    subtitleObserver = new MutationObserver(() => {
+      const now = Date.now()
+      if (now - lastLayerProbeAt < 800) {
+        return
+      }
+      lastLayerProbeAt = now
+      const shown = layerShown()
+      if (shown === lastLayerShown) {
+        return
+      }
+      lastLayerShown = shown
+      logEvent('layer', `字幕层显示=${shown}`)
+    })
+    subtitleObserver.observe(document.body, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+      attributes: true,
+      attributeFilter: ['class', 'style'],
+    })
+    lastLayerShown = layerShown()
+    logEvent('layer', `开始监听字幕层变化 初始显示=${lastLayerShown}`)
+  }
+
   // ---------------------------------------------------------------- 诊断
 
+  const PLAYER_SCOPES = '.bpx-player-container, #bilibili-player'
+
+  function containerList() {
+    return Array.from(document.querySelectorAll(PLAYER_SCOPES))
+  }
+
+  function containerTag(el) {
+    if (!el) {
+      return '-'
+    }
+    const scope = el.closest(PLAYER_SCOPES)
+    if (!scope) {
+      return 'none'
+    }
+    return `#${containerList().indexOf(scope)}`
+  }
+
+  function dumpEnvironment() {
+    const player = document.querySelector('.bpx-player-container')
+    const fullscreen = document.fullscreenElement ? '是' : '否'
+    const webFullscreen = player && classOf(player).includes('fullscreen') ? '是' : '否'
+    return [
+      `时间: ${new Date().toLocaleString()}`,
+      `URL: ${location.href}`,
+      `标题: ${document.title}`,
+      `视口: ${window.innerWidth}x${window.innerHeight} dpr=${window.devicePixelRatio}`,
+      `页面: readyState=${document.readyState} hidden=${document.hidden} 已运行 ${((Date.now() - bootAt) / 1000).toFixed(1)}s`,
+      `文档全屏=${fullscreen} 播放器全屏=${webFullscreen}`,
+      `UA: ${navigator.userAgent.slice(0, 170)}`,
+    ]
+  }
+
+  function dumpRuntime() {
+    return [
+      `启用=${isEnabled()} 自动关闭=${isAutoOff()} 意图=${expectOff ? '希望关闭' : '交给用户'}`,
+      `看护: token=${watchToken} timer=${watchTimer ? 'pending' : 'idle'} fail=${failCount} busy=${busy}`,
+      `快捷键=${getHotkeyValue()} 语言偏好=${getLangPref() || '(跟随播放器)'} 人工优先=${isHumanFirst()} 提示=${getTipMode()}`,
+      `面板节点: 字幕按钮 ${document.querySelectorAll(SEL_BTN).length} 个, 面板盒 ${
+        document.querySelectorAll('.bpx-player-ctrl-subtitle-box').length
+      } 个`,
+    ]
+  }
+
+  function dumpContainers() {
+    const list = containerList()
+    if (!list.length) {
+      return ['(没有匹配到 .bpx-player-container 或 #bilibili-player)']
+    }
+    return list.map(
+      (el, i) =>
+        `[${i}] ${nodeBrief(el)} ${rectBrief(el)} ${styleBrief(el)} | 关闭开关=${el.querySelectorAll(SEL_CLOSE).length} 语言项=${el.querySelectorAll(SEL_ANY_ITEM).length} 字幕层=${el.querySelectorAll(SEL_WRAP).length}`,
+    )
+  }
+
+  function dumpSwitches() {
+    const list = Array.from(document.querySelectorAll(SEL_CLOSE))
+    const lines = [`共 ${list.length} 个, 选中 ${list.filter(el => el.classList.contains('bpx-state-active')).length} 个`]
+    list.forEach((el, i) => {
+      lines.push(
+        `[${i}] active=${el.classList.contains('bpx-state-active')} 可渲染=${isRendered(el, document.body)} ${rectBrief(el)} ${styleBrief(el)} 容器=${containerTag(el)}`,
+      )
+      lines.push(`     class=${classOf(el)}`)
+      lines.push(`     父链=${chainBrief(el.parentElement, 4)}`)
+      lines.push(`     html=${el.outerHTML.replace(/\s+/g, ' ').slice(0, 260)}`)
+    })
+    return lines
+  }
+
+  function dumpItems() {
+    const list = Array.from(document.querySelectorAll(SEL_ANY_ITEM))
+    const activeCount = list.filter(el => el.classList.contains('bpx-state-active')).length
+    const lines = [`共 ${list.length} 个, 选中 ${activeCount} 个`]
+    list.forEach((el, i) => {
+      const group = el.closest(SEL_MINOR)
+        ? 'minor'
+        : el.closest('.bpx-player-ctrl-subtitle-major')
+          ? 'major'
+          : '?'
+      lines.push(
+        `[${i}] lan=${lanOf(el) || '-'} active=${el.classList.contains('bpx-state-active')} 组=${group} 可见=${isVisible(el)} ${rectBrief(el)} 容器=${containerTag(el)} 文本="${(el.textContent || '').trim().slice(0, 24)}"`,
+      )
+    })
+    return lines
+  }
+
+  function dumpWraps() {
+    const wraps = Array.from(document.querySelectorAll(SEL_WRAP))
+    const lines = [`共 ${wraps.length} 个, 有可见文字=${layerShown()}`]
+    wraps.forEach((wrap, i) => {
+      lines.push(
+        `[${i}] ${rectBrief(wrap)} ${styleBrief(wrap)} 容器=${containerTag(wrap)} class=${classOf(wrap).slice(0, 120)}`,
+      )
+      const leaves = Array.from(wrap.querySelectorAll('div, span')).filter(el => {
+        const text = (el.textContent || '').trim()
+        return text && !el.querySelector('div, span')
+      })
+      if (!leaves.length) {
+        lines.push('     无叶子文本节点')
+        return
+      }
+      leaves.slice(0, 10).forEach(el => {
+        lines.push(
+          `     "${(el.textContent || '').trim().slice(0, 32)}" ${rectBrief(el)} ${styleBrief(el)} 可渲染=${isRendered(el, wrap.parentElement)}`,
+        )
+      })
+      if (leaves.length > 10) {
+        lines.push(`     …… 另有 ${leaves.length - 10} 个文本节点`)
+      }
+    })
+    return lines
+  }
+
+  function dumpVerdict() {
+    const state = getState()
+    const shown = layerShown()
+    const conflict = state.off === true && shown
+    return [
+      `关闭开关: 共 ${state.switches.length} 个, 全选中=${state.off}`,
+      `字幕层可见文字=${shown}`,
+      `reallyOff=${reallyOff()}  isSubtitleOn=${isSubtitleOn()}`,
+      `结论=${
+        state.off === null
+          ? '面板未渲染'
+          : conflict
+            ? '矛盾：开关显示已关但字幕仍在渲染'
+            : state.off && !shown
+              ? '已关闭'
+              : '未关闭'
+      }`,
+      `建议=${conflict ? '走 forceClose 的 开→关 重建' : state.off && !shown ? '无需动作' : '直接点关闭开关'}`,
+    ]
+  }
+
+  function dumpLog() {
+    if (!eventLog.length) {
+      return ['(还没有事件)']
+    }
+    return eventLog.slice(-120).map(line => ' ' + line)
+  }
 
   function buildDiagnostics() {
-    const state = getState()
-    const allPanels = document.querySelectorAll(SEL_BTN).length
-    const allItems = document.querySelectorAll(SEL_ANY_ITEM).length
-    const majorItems = document.querySelectorAll(SEL_MAJOR_ITEM).length
-    const visibleItems = queryItems().filter(isVisible).length
-    const rect = el => {
-      if (!el) {
-        return 'none'
-      }
-      const r = el.getBoundingClientRect()
-      return `${Math.round(r.width)}x${Math.round(r.height)} @${Math.round(r.left)},${Math.round(r.top)}`
-    }
-    const lines = [
-      `版本: ${
-        typeof GM_info !== 'undefined' && GM_info.script ? GM_info.script.version : 'unknown'
-      }`,
-      `URL: ${location.href}`,
-      `字幕按钮节点: ${allPanels} 个, rect=${rect(document.querySelector(SEL_BTN))}`,
-      `关闭开关: ${state.switches.length} 个, 全部选中=${state.off}`,
-      ...state.switches.map(
-        (el, i) => `  [${i}] class=${String(el.className)} rect=${rect(el)}`,
-      ),
-      `字幕层显示: ${layerShown() ? '是' : '否'} (wrap ${document.querySelectorAll(SEL_WRAP).length} 个)`,
-      `判定: ${state.off === null ? '面板未渲染' : reallyOff() ? '已关闭' : '未关闭'}`,
-      `语言项: 全部 ${allItems} / major ${majorItems} / 可见 ${visibleItems}`,
-      `语言项 lan: ${queryItems().map(el => lanOf(el)).join(', ') || '(空)'}`,
-      `字幕文本层: ${document.querySelectorAll(SEL_WRAP).length} 个`,
-      `自动关闭: ${isAutoOff() ? '开启' : '关闭'}`,
-      `意图: ${expectOff ? '希望关闭' : '交给用户'}`,
+    const sections = [
+      `===== BCC 诊断 v${scriptVersion()} =====`,
+      '提示: 遇到「面板显示关闭但字幕仍在显示」时, 先点这条菜单再动键盘/鼠标, 否则现场会被覆盖',
     ]
-    return lines.join('\n')
+    const safe = (title, fn) => {
+      sections.push('', `--- ${title} ---`)
+      try {
+        sections.push(...fn())
+      } catch (e) {
+        sections.push(`<读取失败: ${(e && e.message) || e}>`)
+      }
+    }
+    safe('环境', dumpEnvironment)
+    safe('脚本状态', dumpRuntime)
+    safe('播放器容器', dumpContainers)
+    safe('关闭开关', dumpSwitches)
+    safe('语言项', dumpItems)
+    safe('字幕渲染层', dumpWraps)
+    safe('判定', dumpVerdict)
+    safe('事件日志', dumpLog)
+    return sections.join('\n')
   }
 
   /** 失败时把完整现场打印出来并尝试自动复制, 减少来回排查 */
@@ -1127,6 +1395,7 @@
     if (comboKey(combo) !== comboKey(getHotkeyValue())) {
       return
     }
+    logEvent('key', `${combo} 命中 target=${nodeBrief(first)}`)
     e.preventDefault()
     e.stopPropagation()
     if (typeof e.stopImmediatePropagation === 'function') {
@@ -1164,6 +1433,7 @@
         if (after === null || after === before) {
           return
         }
+        logEvent('click', `${nodeBrief(originEl)} 开关态 ${before}→${after}`)
         expectOff = after === true
         if (expectOff) {
           startWatch('用户手动关闭字幕')
@@ -1178,11 +1448,13 @@
   // ---------------------------------------------------------------- 跟随页面
 
   whenDomReady(() => {
+    startSubtitleObserver()
     resetForVideo('首次加载')
   })
 
   // 切回前台立刻校准一次, 抵消后台标签页的计时器节流
   document.addEventListener('visibilitychange', () => {
+    logEvent('page', `visibility=${document.hidden ? 'hidden' : 'visible'}`)
     if (document.hidden || !expectOff) {
       return
     }
@@ -1217,27 +1489,39 @@
         }
       }
     })
-    GM_registerMenuCommand('复制诊断信息到剪贴板', async () => {
+    GM_registerMenuCommand('复制诊断信息到剪贴板（字幕异常点这里）', async () => {
+      const hadPanel = !!document.querySelector(SEL_CLOSE)
+      logEvent('diag', `菜单触发 面板已渲染=${hadPanel}`)
+      // 面板没渲染时先留一份原始现场, 再唤醒; 唤醒会点字幕按钮, 可能改变字幕状态
+      const before = hadPanel ? '' : buildDiagnostics()
       await ensurePanelUsable()
-      const text = buildDiagnostics()
+      const text = hadPanel
+        ? buildDiagnostics()
+        : before + '\n\n########## 唤醒面板后 ##########\n' + buildDiagnostics()
+      let copied = false
       try {
         if (typeof GM_setClipboard === 'function') {
           GM_setClipboard(text, 'text')
+          copied = true
         } else {
           const area = document.createElement('textarea')
           area.value = text
           area.style.cssText = 'position:fixed;left:-9999px;top:0;'
           document.body.appendChild(area)
           area.select()
-          document.execCommand('copy')
+          copied = document.execCommand('copy')
           area.remove()
         }
-        toast('诊断信息已复制，直接粘贴发给开发者')
       } catch (e) {
+        copied = false
+      }
+      console.log('[bcc] 诊断信息\n' + text)
+      if (copied) {
+        debugLog(`诊断已复制（${text.length} 字符）\n完整内容在剪贴板，直接粘贴发给开发者`, true)
+      } else {
+        debugLog('复制失败，完整诊断已输出到控制台（F12）', true)
         toast('复制失败，请查看控制台')
       }
-      debugLog(text)
-      console.log('[bcc] 诊断信息\n' + text)
     })
   }
 
