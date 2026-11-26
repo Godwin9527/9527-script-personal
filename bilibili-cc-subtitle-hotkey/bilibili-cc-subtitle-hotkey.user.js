@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         9527哔哩哔哩CC字幕快捷键
 // @namespace    https://github.com/Godwin9527
-// @version      2.3.0
+// @version      2.3.1
 // @description  独立于 Bilibili Evolved 的 CC 字幕开关键盘快捷键，直接操作 B 站原生字幕，支持自定义按键、语言偏好、人工字幕优先、进入视频自动关闭字幕
 // @author       Godwin9527
 // @run-at       document-start
@@ -28,11 +28,15 @@
  * 面板未渲染时先 hover / 点一次字幕按钮把它唤出来, 再按语言偏好选一项点下去,
  * 点击后回读 close-switch 的状态确认真的生效, 没有就换点击方式重试。
  *
- * 状态判定不能只看第一个 close-switch: B 站的主字幕 / 副字幕 / AI 翻译各有一套「关闭」项,
- * 而且开关标成「关闭」时字幕层也可能没清干净。所以:
+ * 状态判定不能只看开关, 开关标成「关闭」时字幕层也可能还在渲染。所以:
  * - 所有 close-switch 都处于选中态才算开关层面已关
  * - 再叠加字幕渲染层 (.bpx-player-subtitle-wrap) 是否有可见文字
- * - 两者都成立才算真的关; 只有开关成立时执行「开 → 关」强制重建一次
+ * - 两者都成立才算真的关
+ *
+ * 脏状态 (开关说已关、字幕还在渲染) 的修复必须经过语言项:
+ * close-switch 在「自动渲染」状态下只改 UI class, 不建立渲染通道,
+ * 所以「关 → 开 → 关」连点两次 close 是无效的。正确路径是先点一次语言项
+ * (让 UI 真正选中, 字幕 active=true), 再点 close, 才能真正停掉渲染。
  *
  * 关于「默认关闭」: B 站会恢复上次的字幕状态, 常见表现是新进视频 AI 字幕自己就开了。
  * 勾选「进入视频时自动关闭字幕」后, 脚本会为当前视频记住一个意图 (expectOff):
@@ -562,11 +566,117 @@
     return layerShown()
   }
 
+  /** 面板展开后语言项才有尺寸, 用来判断面板是否真的摊开了 */
+  function anyVisibleItem() {
+    return Array.from(document.querySelectorAll(SEL_ANY_ITEM)).find(el => isVisible(el)) || null
+  }
+
+  /** 面板存在但收起时, hover 字幕按钮把它展开, 让语言项真正可点 */
+  async function wakePanelForItem() {
+    if (anyVisibleItem()) {
+      return true
+    }
+    const btn = document.querySelector(SEL_BTN)
+    if (!btn) {
+      return false
+    }
+    fireHover(btn)
+    for (let i = 0; i < 8; i++) {
+      await sleep(120)
+      if (anyVisibleItem()) {
+        logEvent('rebuild', `hover 后语言项可见 (${(i + 1) * 120}ms)`)
+        return true
+      }
+    }
+    logEvent('rebuild', 'hover 未能展开面板, 直接点收起状态的语言项')
+    return false
+  }
+
+  /** 脏状态重建计数, 用来逐级升级: 第 2 次起先 hover 展开面板 */
+  let rebuildTries = 0
+
+  /**
+   * 脏状态修复: 开关全选中但字幕层仍在渲染。
+   * 先用「点语言项」把自动渲染态变成用户选中态 (建立渲染通道), 再点 close 关掉。
+   * 只点 close 是无效的 —— 那种点击只改 UI class, 不碰渲染层。
+   */
+  async function rebuildClose(trace, round) {
+    rebuildTries++
+    if (rebuildTries >= 2) {
+      await wakePanelForItem()
+    }
+
+    const preference = getLangPref() || readPlayerLangPreference()
+    const target = pickSubtitleItem(queryItems(), preference, isHumanFirst())
+    if (!target) {
+      trace.push('  重建: 没有可选语言项')
+      logEvent('rebuild', `第${round}轮 没有语言项`)
+      return false
+    }
+
+    const lan = lanOf(target)
+    const activeBefore = target.classList.contains('bpx-state-active')
+    logEvent(
+      'rebuild',
+      `第${round}轮 点语言项 ${lan} 前 active=${activeBefore} 开关全选中=${getState().off} 层=${layerShown()}`,
+    )
+
+    // 第 1 步: 点语言项, 把「自动渲染」对齐成「用户选中」
+    target.click()
+    await sleep(420)
+    const activeAfter = target.classList.contains('bpx-state-active')
+    logEvent(
+      'rebuild',
+      `第${round}轮 语言项 ${lan} 点击后 active=${activeAfter} 开关全选中=${getState().off} 层=${layerShown()}`,
+    )
+    trace.push(
+      `  重建: 点 ${lan} active ${activeBefore}→${activeAfter} 层=${layerShown() ? '显示' : '无'}`,
+    )
+
+    // 第 2 步: 点掉所有没选中的 close-switch
+    let pending = Array.from(document.querySelectorAll(SEL_CLOSE)).filter(
+      el => !el.classList.contains('bpx-state-active'),
+    )
+    if (!pending.length) {
+      // 语言项没让开关翻面, 说明还停在自动渲染态: 逆反一次拿回控制权
+      const sw = document.querySelector(SEL_CLOSE)
+      if (sw) {
+        sw.click()
+        await sleep(340)
+        pending = Array.from(document.querySelectorAll(SEL_CLOSE)).filter(
+          el => !el.classList.contains('bpx-state-active'),
+        )
+        logEvent(
+          'rebuild',
+          `第${round}轮 逆反后 待点关闭开关=${pending.length} 开关全选中=${getState().off}`,
+        )
+      }
+    }
+
+    for (const el of pending) {
+      el.click()
+      await sleep(180)
+    }
+    await sleep(380)
+
+    const ok = reallyOff() === true
+    logEvent(
+      'rebuild',
+      `第${round}轮 结果 开关全选中=${getState().off} 层=${layerShown()} reallyOff=${ok}`,
+    )
+    trace.push(
+      `  重建: 点了 ${pending.length} 个关闭开关 → 开关全选中=${getState().off} 层=${
+        layerShown() ? '显示' : '无'
+      } ${ok ? '成功' : '仍失败'}`,
+    )
+    return ok
+  }
+
   /**
    * 把字幕关到底。
    * 1. 点掉所有没选中的关闭开关
-   * 2. 开关全都声称「已关」但字幕层还在渲染时, 说明状态脏了:
-   *    点一次变「开」再点一次变「关」, 强制重建渲染
+   * 2. 开关全都声称「已关」但字幕层还在渲染时交给 rebuildClose:
+   *    必须先点语言项再点 close, 单点 close 无效
    */
   async function forceClose(trace, rounds) {
     const limit = rounds || 3
@@ -586,28 +696,26 @@
         await sleep(240)
       }
       if (reallyOff() === true) {
+        rebuildTries = 0
         trace.push(`③ 已关闭字幕 (第 ${round + 1} 轮)`)
         logEvent('forceClose', `第${round + 1}轮 已关闭`)
         return true
       }
       if (!pending.length && layerShown()) {
-        trace.push(`③ 开关显示已关但字幕还在显示, 强制重建 (第 ${round + 1} 轮)`)
-        logEvent('forceClose', `第${round + 1}轮 开关全选中但字幕层仍渲染, 执行 开→关 重建`)
-        const sw = document.querySelector(SEL_CLOSE)
-        if (sw) {
-          sw.click()
-          await sleep(300)
-          const again = document.querySelector(SEL_CLOSE)
-          if (again) {
-            again.click()
-            await sleep(320)
-          }
+        trace.push(`③ 开关显示已关但字幕还在显示, 走「语言项 → 关闭」重建 (第 ${round + 1} 轮)`)
+        logEvent('forceClose', `第${round + 1}轮 开关全选中但字幕层仍渲染, 走语言项重建`)
+        if (await rebuildClose(trace, round + 1)) {
+          rebuildTries = 0
+          trace.push(`③ 已关闭字幕 (第 ${round + 1} 轮)`)
+          logEvent('forceClose', `第${round + 1}轮 语言项重建成功`)
+          return true
         }
       } else {
         await sleep(200)
       }
     }
     if (reallyOff() === true) {
+      rebuildTries = 0
       return true
     }
     trace.push('③ 关闭失败: 多次尝试后字幕仍在显示')
@@ -656,7 +764,15 @@
 
   async function toggleSubtitle() {
     if (busy) {
-      return
+      // 看守正在修字幕, 等它收手再接管, 最多等 2.2s (一次重建约 1.5s)
+      logEvent('toggle', '看守占用中, 等待')
+      for (let i = 0; i < 22 && busy; i++) {
+        await sleep(100)
+      }
+      if (busy) {
+        logEvent('toggle', '看守仍占用, 本次按键忽略')
+        return
+      }
     }
     busy = true
     const trace = []
@@ -823,7 +939,14 @@
     if (state.off !== true || layerShown()) {
       logEvent('watch', `发现未关闭 开关全选中=${state.off} 层=${layerShown()} fail=${failCount}`)
       // 只跑一轮, 避免长时间占住 busy 让快捷键按下去没反应; 下一轮定时器会继续
-      const ok = await forceClose([], 1)
+      // 记 busy 是为了让快捷键等这次重建收手, 两边同时点会把状态点乱
+      busy = true
+      let ok = false
+      try {
+        ok = await forceClose([], 1)
+      } finally {
+        busy = false
+      }
       if (token !== watchToken) {
         return
       }
@@ -859,6 +982,7 @@
 
   function resetForVideo(reason) {
     expectOff = true
+    rebuildTries = 0
     logEvent('video', `重置意图=关 ${reason || ''} url=${location.href.slice(0, 120)}`)
     startWatch(reason)
   }
@@ -945,7 +1069,7 @@
   function dumpRuntime() {
     return [
       `启用=${isEnabled()} 自动关闭=${isAutoOff()} 意图=${expectOff ? '希望关闭' : '交给用户'}`,
-      `看护: token=${watchToken} timer=${watchTimer ? 'pending' : 'idle'} fail=${failCount} busy=${busy}`,
+      `看护: token=${watchToken} timer=${watchTimer ? 'pending' : 'idle'} fail=${failCount} busy=${busy} 重建尝试=${rebuildTries}`,
       `快捷键=${getHotkeyValue()} 语言偏好=${getLangPref() || '(跟随播放器)'} 人工优先=${isHumanFirst()} 提示=${getTipMode()}`,
       `面板节点: 字幕按钮 ${document.querySelectorAll(SEL_BTN).length} 个, 面板盒 ${
         document.querySelectorAll('.bpx-player-ctrl-subtitle-box').length
@@ -1039,7 +1163,7 @@
               ? '已关闭'
               : '未关闭'
       }`,
-      `建议=${conflict ? '走 forceClose 的 开→关 重建' : state.off && !shown ? '无需动作' : '直接点关闭开关'}`,
+      `建议=${conflict ? '走 rebuildClose 的「语言项 → 关闭」重建' : state.off && !shown ? '无需动作' : '直接点关闭开关'}`,
     ]
   }
 
